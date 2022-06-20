@@ -1,0 +1,26 @@
+Minting fees split
+10% => Car Giveaway
+10% => Able Gamers
+15% => Giveaways
+25% => Team
+40% => Development Fund
+
+Take payment in USD value or matic/raptorCoin equivelant
+
+
+
+Tokenomics
+4% tax on transfer
+
+1.5% split between staking contracts
+1.5% added as auto liquidity
+1% burned
+
+
+
+Marketplace 
+3% tax on resale
+
+0.5% of each sale is sent to locked liquidity in exchange
+0.5% of each sale is sent to the staking contracts
+2% of each sale is split between equally the team
