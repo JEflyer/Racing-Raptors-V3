@@ -10,10 +10,9 @@ Take payment in USD value or matic/raptorCoin equivelant
 
 
 Tokenomics
-4% tax on transfer
+3% tax on transfer
 
-1.5% split between staking contracts
-1.5% added as auto liquidity
+2% added as auto liquidity
 1% burned
 
 
@@ -21,6 +20,5 @@ Tokenomics
 Marketplace 
 3% tax on resale
 
-0.5% of each sale is sent to locked liquidity in exchange
-0.5% of each sale is sent to the staking contracts
-2% of each sale is split between equally the team
+1% of each sale is sent to locked liquidity in exchange
+2% royalties
