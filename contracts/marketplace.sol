@@ -21,6 +21,7 @@ contract Marketplace {
         uint256 currentAuctionPrice;
         address seller;
         address currentHighestBidder;
+        uint32 timeSaleEnds;
         bool active;
     }
 
@@ -71,7 +72,7 @@ contract Marketplace {
     }
 
 
-    function createSale(uint16 _tokenId, uint8 _minterIndex,SaleType _type, uint256 _price ) external {
+    function createSale(uint16 _tokenId, uint8 _minterIndex,SaleType _type, uint256 _price, uint32 _lengthOfSale) external {
 
         require(uint(_type) < 2, "ERR:WT");//WT => Wrong Type
 
@@ -113,6 +114,7 @@ contract Marketplace {
                 currentAuctionPrice: 0;
                 seller: caller;
                 currentHighestBidder: address(0);
+                timeSaleEnds: block.timestamp + _lrngthOfSale;
                 active: true;
             })
         }else if(uint(_type) == 1){
@@ -126,6 +128,7 @@ contract Marketplace {
                 currentAuctionPrice: 0;
                 seller: caller;
                 currentHighestBidder: address(0);
+                timeSaleEnds: block.timestamp + _lrngthOfSale;
                 active: true;
             })
         }
@@ -135,20 +138,70 @@ contract Marketplace {
 
     function buyItem(uint256 _saleID, uint256 _value) external {
 
-        
+        SaleDetails storage details = saleDetails(_saleID);        
+
+        address caller = _msgSender();
 
         uint256 amountApproved = token.allowance(caller, address(this));
-        require(amountApproved >= saleDetails[_saleID] ,"ERR:AA");//AA => Approved Amount
+        require(amountApproved >= details.buyPrice ,"ERR:AA");//AA => Approved Amount
 
+        require(uint8(details.saleType) == 0, "ERR:ST");//ST => Sale Type
+
+        token.transferFrom(caller,details.seller,details.buyPrice);
+
+        if(details.minterIndex == 0){
+            minter1.transferFrom(address(this),caller,details.tokenId);
+        }else if(details.minterIndex == 1) {
+            minter2.transferFrom(address(this),caller,details.tokenId);
+        }
+
+        delete details.active;
     }
 
     function bidOnItem(uint256 _saleID, uint256 _value) external {
-        uint256 amountApproved = token.allowance(caller, address(this));
+        
+        SaleDetails storage details = saleDetails(_saleID);        
 
+        address caller = _msgSender();
+        
+        uint256 amountApproved = token.allowance(caller, address(this));
+        
+        if(details.currentAuctionPrice != 0){
+            require(amountApproved > details.currentAuctionPrice, "ERR:LB");//LB => Low Balling
+        }else {
+            require(amountApproved >= details.minAuctionPrice, "ERR:LB");//LB => Low Balling
+        }
+        
+        require(amountApproved >= _value,"ERR:AA");//AA => Approved Amount
+        
+        token.transferFrom(caller,address(this), _value);
+
+        if(details.currentHighestBidder != address(0)){
+            token.transferFrom(address(this), details.currentHighestBidder, details.currentAuctionPrice);
+        }
+
+        details.currentHighestBidder = caller;
+        details.currentAuctionPrice = _value;
     }
 
     function claimNFT(uint256 _saleID) external {
+        SaleDetails storage details = saleDetails(_saleID);        
 
+        address caller = _msgSender();
+
+        require(details.timeSaleEnds <= block.timestamp, "ERR:NO");
+
+        require(details.currentHighestBidder == caller, "ERR:DW");//DW => Didn't Win
+
+        if(details.minterIndex == 0){
+            minter1.transferFrom(address(this),caller,details.tokenId);
+        }else if(details.minterIndex == 1) {
+            minter2.transferFrom(address(this),caller,details.tokenId);
+        }
+
+        token.transferFrom(address(this),details.seller,details.currentAuctionPrice);
+
+        delete details.active;
     }
 
 }
