@@ -12,8 +12,8 @@ Take payment in USD value or matic/raptorCoin equivelant
 Tokenomics
 3% tax on transfer
 
-2% added as auto liquidity
-1% burned
+1% added as auto liquidity
+2% burned
 
 
 

@@ -37,7 +37,7 @@ contract Claws is IERC20, ERC20Burnable{
 
         _burn(caller, amount);
 
-        token.mint(caller, amount * 4 /3);
+        token.mint(caller, amount * 5 /4);
     }
 
 }
