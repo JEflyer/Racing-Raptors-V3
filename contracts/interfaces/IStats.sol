@@ -1,7 +1,23 @@
 //SPDX-License-Identifier: MIT
-pragma solidity 0.8.14;
+pragma solidity 0.8.15;
 
 interface IStats {
+
+    //Defining the stats that every raptor will have
+    struct RaptorStats {
+        uint64 speed;
+        uint64 strength;
+        uint64 fightsWon;
+        uint64 fightsLost;
+        uint64 quickPlayRacesWon;
+        uint64 compRacesWon;
+        uint64 deathRacesWon;
+        uint64 deathRacesSurvived;
+        uint64 totalRacesTop3Finish;
+        uint64 cooldownTime;
+    }
+
+
     function instantiateStats(uint16 tokenId) external returns (bool);
 
     //For a minterIndex & tokenId return the Raptor Stats struct
