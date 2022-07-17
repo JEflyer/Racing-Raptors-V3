@@ -24,6 +24,7 @@ contract StrengthStaking is Context {
 
     struct StakeDetails {
         address staker;
+        uint256 lastStep;
         uint64 strength; 
         uint64 blockStaked;
         uint64 blockLastClaimed;
@@ -130,6 +131,7 @@ contract StrengthStaking is Context {
         //Update stake details for this token & minter
         stakeDetails[minterIndex][tokenId] = StakeDetails({
             staker: caller,
+            lastStep: stepId,
             strength: strength,
             blockStaked: uint64(block.number),
             blockLastClaimed: uint64(block.number)
@@ -212,18 +214,128 @@ contract StrengthStaking is Context {
             }
         }
 
+        //Delete stakeDetails
+        delete details;
+
         //Emit Event
     }
 
     function claim() external {
+        address caller = _msgSender();
 
+        uint256 reward = getDueRewardForUser(caller);
+
+        require(reward > 0, "ERR:NR");//NR => No Reward
+
+        resetBlocks(caller);
+
+        token.mint(caller, reward);
+
+        //Emit Event
+    }
+
+    function resetBlocks(address addr) internal {
+        //Pull user details
+        UserData storage data = userData[addr];
+
+        uint8[] storage minterIndexes = data.minterIndexes; 
+        uint16[] storage tokenIds = data.tokenIDs;
+
+        uint256 currentStep = stepId;
+
+        for(uint16 i = 0; i< tokenIds.length;) {
+
+            stakeDetails[minterIndexes[i]][tokenIds[i]].blockLastClaimed = uint64(block.number);
+            stakeDetails[minterIndexes[i]][tokenIds[i]].lastStep = currentStep;
+
+            unchecked{
+                i++;
+            }
+        }
     }
 
     function getDueRewardForUser(address query) public view returns(uint256){
+        //Pull user details
+        UserData storage data = userData[query];
 
+        uint8[] storage minterIndexes = data.minterIndexes; 
+        uint16[] storage tokenIds = data.tokenIDs;
+
+        uint256 total = 0;
+        uint256 totalPercent = 0;
+
+        uint256 tempPercent = 0;
+
+        uint256 tempNum = 0;
+        uint256 tempNum2 = 0;
+
+        uint256 currentStep = stepId;
+
+        for(uint16 i = 0; i< tokenIds.length;) {
+
+            StakeDetails memory details = stakeDetails[minterIndexes[i]][tokenIds[i]];
+
+
+            for(uint256 j = details.lastStep; j <= currentStep;){
+
+                StepDetails memory info = stepDetails[j];
+
+                //Multiplied by 100k to be divided afterwards
+                //Find the percentage of strength for a given step
+                tempNum = ((details.strength * 100000) / info.totalStrength) ;
+
+                tempNum2 = (j == currentStep) ? (block.number - info.blockUpdated) : (info.blockUntil - info.blockUpdated);
+
+                tempPercent += tempNum * tempNum2;
+
+                unchecked{
+                    j++;
+                }
+
+            }
+
+            unchecked{
+                i++;
+            }
+        }
+
+        //Calculate full reward, divide by 100k for solving decimal problem
+        total = tempPercent * totalBlockReward / 100000;
+
+        return total;
     } 
 
     function getDueRewardForToken(uint8 minterIndex, uint16 tokenId) internal view returns(uint256){
+
+        StakeDetails memory details = stakeDetails[minterIndexes[i]][tokenIds[i]];
+
+        uint256 tempNum = 0;
+
+        uint256 tempNum2 = 0;
+
+        uint256 tempPercent = 0;
+
+
+
+        for(uint256 j = details.lastStep; j <= currentStep;){
+
+            StepDetails memory info = stepDetails[j];
+
+            //Multiplied by 100k to be divided afterwards
+            //Find the percentage of strength for a given step
+            tempNum = ((details.strength * 100000) / info.totalStrength) ;
+
+            tempNum2 = (j == currentStep) ? (block.number - info.blockUpdated) : (info.blockUntil - info.blockUpdated);
+
+            tempPercent += tempNum * tempNum2;
+
+            unchecked{
+                j++;
+            }
+
+        }
+
+        return tempPercent * totalBlockReward / 100000;
 
     }
 
