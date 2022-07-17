@@ -73,23 +73,32 @@ contract StrengthStaking is Context {
         
     }
 
+    //This function is called everytime someone stakes or unstakes a NFT
+    //The purpose is to keep a track of what blocks the total strength is for reward calculation
     function updateStep(uint256 totalStrength) internal {
         
+        //Perform One SLOAD function
         uint256 step = stepId;
 
+        //Perform One SLOAD function
         uint64 currentBlock = block.number;
 
+        //Store the final block for the last step
         stepDetails[step].blockUntil = currentBlock-1;
         
+        //Increment the step before using & Assign new details
         stepDetails[++step] = StepDetails({
             totalStrength: totalStrength,
             blockUpdated: currentBlock
         });
+
+        //Assign the new stepId to storage
+        stepId = step;
     }
 
     function stake(uint8 minterIndex, uint16 tokenId) external {
         //Check that minterIndex is less than 2
-        require(minterIndexc < 2, "ERR:MI");//MI => Minter Index
+        require(minterIndex < 2, "ERR:MI");//MI => Minter Index
 
         //Get the address of the caller
         address caller = _msgSender();
@@ -135,21 +144,86 @@ contract StrengthStaking is Context {
         //Store data
         data.minterIndexes.push(minterIndex);
         data.tokenIDs.push(tokenId);
+
+        //Emit Event
     }
 
-    function unstake() external {
+    function unstake(uint8 minterIndex, uint16 tokenId) external {
+        //Check that minterIndex is less than 2
+        require(minterIndex < 2, "ERR:MI");//MI => Minter Index
 
+        //Get the address of the caller
+        address caller = _msgSender();
+        
+        //Declare an instance of the minter
+        IERC721A memory minter;
+
+        //Assign the minter to memory
+        if(minterIndex == 0){
+            minter = minter1;
+        }else if(minterIndex == 1){
+            minter = minter2;
+        }  
+
+        //Check that the caller owns the token for minter index
+        require(minter.ownerOf(tokenId) == address(this),"ERR:NO");//NO => Not Owner
+        
+        //Pull the struct into the function
+        StakeDetails storage details = stakeDetails[minterIndex][tokenId];
+
+        //Check that the staker is the caller
+        require(details.staker == caller, "ERR:NS");//NS => Not Staker
+
+        //Move the NFT from this contract to the staker
+        require(minter.transferFrom(address(this), caller, tokenId),"ERR:OT");//OT => On Transfer
+
+        //Calculate the reward
+        uint256 reward = getDueRewardForToken(minterIndex, tokenId)
+        
+        //Pay Staker
+        token.mint(caller, reward);
+
+        //Update the next step with the new total strength
+        updateStep(stepDetails[stepId].totalStrength - details.strength);
+
+        //Pull user details
+        UserData storage data = userData[caller];
+
+        uint8[] storage minterIndexes = data.minterIndexes; 
+        uint16[] storage tokenIds = data.tokenIDs; 
+
+        //Remove data
+        for(uint16 i = 0 ; i < tokenIds.length; ){
+
+            if(
+                minterIndexes[i] == minterIndex
+                &&
+                tokenIds[i] == tokenId
+            ){
+                minterIndexes[i] = minterIndexes[minterIndexes.length-1];
+                minterIndexes.pop();
+                
+                tokenIds[i] = tokenIds[tokenIds.length-1];
+                tokenIds.pop();
+            }
+
+            unchecked{
+                i++;
+            }
+        }
+
+        //Emit Event
     }
 
     function claim() external {
 
     }
 
-    function getDueRewardForUser() public view returns(uint256){
+    function getDueRewardForUser(address query) public view returns(uint256){
 
     } 
 
-    function getDueRewardForToken() internal view returns(uint256){
+    function getDueRewardForToken(uint8 minterIndex, uint16 tokenId) internal view returns(uint256){
 
     }
 
