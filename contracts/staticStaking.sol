@@ -40,7 +40,7 @@ contract StaticStaking is Context{
     //Stores an instance of the rate contract for retrieving the share of burned tokens
     address private rate;
 
-    //Stores instances of the ERC721A interface
+    //Stores instances of the ERC721A contracts
     address[] private minters;
 
     //Stores an instance of the Stats interface

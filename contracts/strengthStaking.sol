@@ -17,6 +17,7 @@ import "./ERC721A/IERC721A.sol";
 contract StrengthStaking is Context {
 
     error NotAuthorised();
+    error IncorrectMinter();
 
 
     struct StepDetails {
@@ -58,20 +59,18 @@ contract StrengthStaking is Context {
     //Stores an instance of an ERC20 interface
     ICoin private token;
 
-    //Stores instances of the ERC721A interface
-    IERC721A private minter1;
-    IERC721A private minter2;
+    //Stores instances of the ERC721A contracts
+    address[] private minters;
 
     //Stores an instance of the Stats interface
     IStats private stats;
 
     constructor(
-        address _minter1, address _minter2, address _token, address _stats, address _rate
+        address[] memory _minters, address _token, address _stats, address _rate
     ){
         admin = _msgSender();
 
-        minter1 = IERC721A(_minter1);
-        minter2 = IERC721A(_minter2);
+        minters = _minters;
 
         token = ICoin(_token);
 
@@ -138,12 +137,20 @@ contract StrengthStaking is Context {
         //Define an instance of the minter
         IERC721A minter;
 
-        //Assign the minter to memory
-        if(minterIndex == 0){
-            minter = minter1;
-        }else if(minterIndex == 1){
-            minter = minter2;
-        }  
+        if( minterIndex > minters.length -1) {
+            //Check on the stats contract if the minter index exists, returns with address if true
+            address minterCheck = stats.checkMinterIndex(minterIndex);
+            
+            if(minterCheck == address(0)){
+                revert IncorrectMinter();
+            }else {
+                minters.push(minterCheck);
+                minter = IERC721A(minterCheck);
+            }
+
+        }else {
+            minter = IERC721A(minters[minterIndex]);
+        }
 
         //Check that the caller owns the token for minter index
         require(minter.ownerOf(tokenId) == caller,"ERR:NO");//NO => Not Owner
@@ -192,12 +199,20 @@ contract StrengthStaking is Context {
         //Declare an instance of the minter
         IERC721A minter;
 
-        //Assign the minter to memory
-        if(minterIndex == 0){
-            minter = minter1;
-        }else if(minterIndex == 1){
-            minter = minter2;
-        }  
+        if( minterIndex > minters.length -1) {
+            //Check on the stats contract if the minter index exists, returns with address if true
+            address minterCheck = stats.checkMinterIndex(minterIndex);
+            
+            if(minterCheck == address(0)){
+                revert IncorrectMinter();
+            }else {
+                minters.push(minterCheck);
+                minter = IERC721A(minterCheck);
+            }
+
+        }else {
+            minter = IERC721A(minters[minterIndex]);
+        }
 
         //Check that the caller owns the token for minter index
         require(minter.ownerOf(tokenId) == address(this),"ERR:NO");//NO => Not Owner
