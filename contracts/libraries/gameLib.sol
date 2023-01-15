@@ -9,6 +9,17 @@ import "../structs/gameVars.sol";
 import "../interfaces/IStats.sol";
 
 library gameLib {
+    //-------------------------Errors------------------------------//
+    error ErrorBurning();
+    error UpgradingStrength();
+    error UpgradingSpeed();
+    error UpgradingQuickPlayWins();
+    error UpgradingCompetitiveWins();
+    error UpgradingDeathRaceWins();
+    error UpgradingTopThreeFinishes();
+    error UpgradingDeathRacesSurvives();
+    error SettingCooldown();
+    //-------------------------Errors------------------------------//
     //-------------------------Events-------------------------------//
     event InjuredRaptor(uint8 minterIndex, uint16 raptor);
     event FightWinner(uint8 minterIndex, uint16 raptor);
@@ -87,7 +98,7 @@ library gameLib {
     //-------------------------Helpers-------------------------------//
 
     //Gets the cooldownTime from the minter contract for a given tokenID
-    function getTime(uint8 minterIndex, uint16 raptor)
+    function getTime(uint256 minterIndex, uint256 raptor)
         internal
         view
         returns (uint64)
@@ -100,7 +111,7 @@ library gameLib {
     }
 
     //Checks the minter contract to see if msg.sender owns  a given tokenID
-    function owns(uint8 minterIndex, uint16 raptor)
+    function owns(uint256 minterIndex, uint256 raptor)
         internal
         view
         returns (bool)
@@ -113,7 +124,7 @@ library gameLib {
     }
 
     //gets the owner of a given tokenID
-    function getOwner(uint8 minterIndex, uint16 raptor)
+    function getOwner(uint256 minterIndex, uint256 raptor)
         internal
         view
         returns (address)
@@ -125,32 +136,10 @@ library gameLib {
         return IStats(store.statContract).ownerOf(minterIndex, raptor);
     }
 
-    function isApproved(uint8 minterIndex, uint16 tokenId)
-        internal
-        view
-        returns (bool)
-    {
-        //Gets the storage of the minter address
-        StatStore storage store = statStore();
-
-        //Check that the token for a given minterhas the stats contract approved to burn if necessary
-        return IStats(store.statContract).checkApproval(minterIndex, tokenId);
-    }
-
-    //calculates 5% of the wei amount sent
-    function calcFee(uint256 pool) internal pure returns (uint256 fee) {
-        fee = (pool * 5) / 100;
-    }
-
-    //calculates 95% of the wei amount sent
-    function calcPrize(uint256 pool) internal pure returns (uint256 prize) {
-        prize = (pool / 100) * 95;
-    }
-
     //checks that a value is between 0 & 7
     //used as a index check
     function checkBounds(uint8 input) internal pure returns (bool response) {
-        (input < 8 && input >= 0) ? response = true : response = false;
+        return (input < 8);
     }
 
     //figures out what 2 raptors will fight
@@ -176,7 +165,7 @@ library gameLib {
             //If the value isn't in the the boundaries
             if (!check) {
                 //Set the first fighter index to a new random index
-                gameVars.fighters[0] = uint8(gameVars.randomness[i] % 8);
+                gameVars.fighters[0] = uint8((gameVars.randomness[i]+ i) % 8);
 
                 //Remove the safe math wrapper
                 unchecked {
@@ -208,67 +197,43 @@ library gameLib {
         returns (GameVars memory)
     {
         //Define a counter
-        uint8 index;
+        uint8 winnerIndex;
+        uint8 loserIndex;
 
         //If the 5th random number is even the winner is fighter 1, otherwise fihter 2 wins
-        (gameVars.randomness[4] % 2 == 0)
-            ? index = gameVars.fighters[0]
-            : index = gameVars.fighters[1];
-
-        // If the winner is fighter 1
-        if (index == gameVars.fighters[0]) {
-            //Emit an event saying that fighter 1 won
-            emit FightWinner(gameVars.minterIndexes[gameVars.fighters[0]], gameVars.raptors[gameVars.fighters[0]]);
-
-            //Assign the fight winner
-            gameVars.fightWinner = gameVars.fighters[0];
-
-            //If the current race isn't deathrace
-            if (!gameVars.dr) {
-                //Emit an event saying that fighter 2 is injured
-                emit InjuredRaptor(gameVars.minterIndexes[gameVars.fighters[1]], gameVars.raptors[gameVars.fighters[1]]);
-
-                //Add a cooldown to the losing rar
-                addCooldownPeriod(gameVars);
-
-                //If the current race is a death race
-            } else {
-                uint256 index2 = gameVars.fighters[1];
-                //Burn fighter 2
-                _kill(gameVars.minterIndexes[index2], gameVars.raptors[index2]);
-
-                //Emit an event saying that fighter 2 has been killed
-                emit RipRaptor(gameVars.minterIndexes[index2], gameVars.raptors[index2]);
-            }
-
-            //If the winner is fighter 2
-        } else {
-            //Assign the winner of the fight
-            gameVars.fightWinner = gameVars.fighters[1];
-
-            //Emit an event that fighter 2 won the fight
-            emit FightWinner(gameVars.minterIndexes[gameVars.fighters[1]], gameVars.raptors[gameVars.fighters[1]]);
-
-            //If the current race is not a death race
-            if (!gameVars.dr) {
-                //Add a cooldown to fighter 1
-                addCooldownPeriod(gameVars);
-
-                //Emit an event saying that fighter 1 has been injured
-                emit InjuredRaptor(gameVars.minterIndexes[gameVars.fighters[0]], gameVars.raptors[gameVars.fighters[0]]);
-
-                //Is the current race is a death race
-            } else {
-                //Burn the raptor
-                _kill(
-                    gameVars.minterIndexes[gameVars.fighters[0]],
-                    gameVars.raptors[gameVars.fighters[0]]
-                );
-
-                //Emit an event saying that fighter 1 has been killed
-                emit RipRaptor(gameVars.minterIndexes[gameVars.fighters[0]], gameVars.raptors[gameVars.fighters[0]]);
-            }
+        if (gameVars.randomness[4] % 2 == 0){
+            winnerIndex = gameVars.fighters[0];
+            loserIndex = gameVars.fighters[1];
+        }else{
+            winnerIndex = gameVars.fighters[1];
+            loserIndex = gameVars.fighters[0];
         }
+        
+        //Emit an event saying which fighter won
+        emit FightWinner(gameVars.minterIndexes[winnerIndex], gameVars.raptors[winnerIndex]);
+
+        //Assign the fight winner
+        gameVars.fightWinner = winnerIndex;
+        gameVars.fightLoser = loserIndex;
+
+        //If the current race isn't deathrace
+        if (!gameVars.dr) {
+            //Emit an event saying that the fighter loser is injured
+            emit InjuredRaptor(gameVars.minterIndexes[loserIndex], gameVars.raptors[loserIndex]);
+
+            //Add a cooldown to the losing rar
+            addCooldownPeriod(gameVars);
+
+            //If the current race is a death race
+        } else {
+
+            //Burn fighter 2
+            _kill(gameVars.minterIndexes[loserIndex], gameVars.raptors[loserIndex]);
+
+            //Emit an event saying that fighter 2 has been killed
+            emit RipRaptor(gameVars.minterIndexes[loserIndex], gameVars.raptors[loserIndex]);
+        }
+
         return gameVars;
     }
 
@@ -282,22 +247,19 @@ library gameLib {
         returns (uint8[3] memory)
     {
         //Assign this value a high number
-        uint16 lowest = 20000;
+        uint32 lowest = type(uint32).max;
 
         //Make an array to store the placed raptors
         uint8[3] memory places;
 
-        //Define a counter to be used in each forloop
-        uint8 i = 0;
-
         //Iterate through the current Raptors
-        for (; i < 8; ) {
+        for (uint256 i = 0; i < 8; ) {
             //If i does not equal the indexes of either fighter
             if (i != fighters[0] && i != fighters[1]) {
                 //Check if the time that it takes for raptor at position i to finish the race is the lowest
                 if (time[i] < lowest) {
                     //Assign the lowest amount of time
-                    lowest = uint16(time[i]);
+                    lowest = time[i];
 
                     //Store the index of the winner
                     places[0] = i;
@@ -311,13 +273,11 @@ library gameLib {
         }
 
         //Reset the lowest time variable
-        lowest = 20000;
+        lowest = type(uint32).max;
 
-        //Reset the counter
-        i = 0;
 
         //Iterate through the current raptors
-        for (; i < 8; ) {
+        for (uint256 i = 0; i < 8; ) {
             //If I does not equal the indexes of either fighter OR the winner
             if (i != fighters[0] && i != fighters[1] && i != places[0]) {
                 //Check if the time that it takes for raptor at position i to finish the race is the lowest
@@ -337,13 +297,11 @@ library gameLib {
         }
 
         //Reset the lowest time variable
-        lowest = 20000;
+        lowest = type(uint32).max;
 
-        //Reset the counter
-        i = 0;
 
         //Iterate through the current raptors
-        for (; i < 8; ) {
+        for (uint256 i = 0; i < 8; ) {
             //If I does not equal the indexes of either fighter OR the winner OR the 2nd place raptor
             if (
                 i != fighters[0] &&
@@ -354,7 +312,7 @@ library gameLib {
                 //Check if the time that it takes for raptor at position i to finish the race is the lowest
                 if (time[i] < lowest) {
                     //Store the lowest time
-                    lowest = uint16(time[i]);
+                    lowest = time[i];
 
                     //Store the index of third place
                     places[2] = i;
@@ -375,8 +333,6 @@ library gameLib {
         view
         returns (GameVars memory)
     {
-        //Define the counter
-        uint8 i = 0;
 
         //Declare an empty array of 8 values
         uint64[8] memory speed;
@@ -384,34 +340,46 @@ library gameLib {
         //Get the stat contract address
         address stat = statStore().statContract;
 
+        uint256 total = 0;
+
         //get speed for each raptor
-        for (; i < 8; i++) {
+        for (uint256 i = 0; i < 8; ) {
             //Retreive the speed of a raptor for it's minter
             speed[i] = IStats(stat).getSpeed(
                 gameVars.minterIndexes[i],
                 gameVars.raptors[i]
             );
+
+            total += speed[i];
+
+            unchecked{
+                i++;
+            }
         }
 
-        //Reset the counter
-        i = 0;
+        uint256 bonus = total / 8;
 
         //Declare an empty array for random values
-        uint8[8] memory randomness;
+        uint64[8] memory randomness;
 
         //Declare an empty array for the time it takes a raptor to finish
-        uint32[8] memory time;
+        uint64[8] memory time;
 
         //Get the distance
         uint32 distance = distanceStore().distance;
 
         //Iterate for the current raptors
-        for (; i < 8; i++) {
+        for (uint256 i = 0; i < 8;) {
             //Calculate the random value
-            randomness[i] = uint8(gameVars.randomness[i] % 5);
+            randomness[i] = uint64(gameVars.randomness[i] % bonus);
 
             //Calculate the time it takes each raptor to finish the race
-            time[i] = uint32(distance / (speed[i] + randomness[i]));
+                //distance * 100 is so that we can see the time to 2 decimal places
+            time[i] = uint64(distance * 100 / (speed[i] + randomness[i]));
+
+            unchecked{
+                i++;
+            }
         }
 
         //Get the 3 winning raptors
@@ -431,18 +399,10 @@ library gameLib {
         //Get the address of the stat contract
         address stat = statStore().statContract;
 
-        //Define a index
-        uint8 index;
-
-        //Figure out the index
-        (gameVars.fightWinner == gameVars.fighters[0])
-            ? (index = 0)
-            : (index = 1);
-
         //Upgrade the strength stat for raptor & minter by the random value
         bool success = IStats(stat).increaseStrength(
-            gameVars.minterIndexes[index],
-            gameVars.raptors[gameVars.fighters[index]],
+            gameVars.minterIndexes[gameVars.fightWinner],
+            gameVars.raptors[gameVars.fightWinner],
             rand
         );
 
@@ -459,7 +419,7 @@ library gameLib {
         address stat = statStore().statContract;
 
         //Upgrade the speed stat for raptor & minter by the random value
-        bool success = IStats(stat).increaseStrength(
+        bool success = IStats(stat).increaseSpeed(
             gameVars.minterIndexes[gameVars.places[0]],
             gameVars.raptors[gameVars.places[0]],
             rand
@@ -523,7 +483,7 @@ library gameLib {
         address stat = statStore().statContract;
 
         //Iterate through the raptors who finished top 3
-        for (uint8 i = 0; i < 3; ) {
+        for (uint256 i = 0; i < 3; ) {
             //Upgrade the stats for a raptor & minter
             bool success = IStats(stat).increaseTop3Finishes(
                 gameVars.minterIndexes[gameVars.places[i]],
@@ -544,14 +504,12 @@ library gameLib {
         //Get the address of the stat contract
         address stat = statStore().statContract;
 
-        //Get the index of the losing fighter
-        uint8 index = (gameVars.fighters[0] == gameVars.fightWinner) ? gameVars.fighters[1] : gameVars.fighters[0];
 
         //Iterate through the raptors
-        for(uint8 i = 0; i < 8;){
+        for(uint256 i = 0; i < 8;){
             
             //If i isn't the losing fighter's index
-            if(i != index){
+            if(i != gameVars.fightLoser){
                 bool success = IStats(stat).increaseDRSurvived(
                     gameVars.minterIndexes[i],
                     gameVars.raptors[i]
@@ -574,18 +532,11 @@ library gameLib {
         //Get the address of the stat contract
         address stat = statStore().statContract;
 
-        //Declare a index variable
-        uint8 index;
-
-        //Figure out the index
-        (gameVars.fightWinner == gameVars.fighters[0])
-            ? (index = 1)
-            : (index = 0);
 
         //Increase the cooldown time for a raptor & minter
         bool success = IStats(stat).increaseCooldownTime(
-            gameVars.minterIndexes[index],
-            gameVars.raptors[gameVars.fighters[index]]
+            gameVars.minterIndexes[gameVars.fightLoser],
+            gameVars.raptors[gameVars.fightLoser]
         );
 
         //Check that increasing the stat was successful
@@ -594,6 +545,15 @@ library gameLib {
 
     // -----  +12 Hours/ Unless Founding Raptor 6 Hours -----//
     //------------------------Stat-Changes---------------------------------//
+
+    function _play(GameVars memory gameVars) internal returns(GameVars memory _gameVars){
+        
+        _gameVars = getFighters(gameVars);
+        _gameVars = getFightWinner(_gameVars);
+
+        //gets the winner & next two places
+        return getWinner(_gameVars);
+    }
 
     //-----------------------------QP--------------------------------------//
 
@@ -605,12 +565,7 @@ library gameLib {
         //Emit an event saying that the race has started
         emit QuickPlayRaceStarted(gameVars.minterIndexes, gameVars.raptors);
 
-        //gets fighters, finds the winner & adds both indexes to ignore for choosing race winner
-        gameVars = getFighters(gameVars);
-        gameVars = getFightWinner(gameVars);
-
-        //gets the winner & next two places
-        gameVars = getWinner(gameVars);
+        gameVars = _play(gameVars);
 
         //index 0 = winner; index 1 = second; index 2 = third
         emit Top3(
@@ -642,14 +597,8 @@ library gameLib {
         //Increase the winners QP wins
         increaseQPWins(gameVars);
 
-        //Increase the winners speed
-        upgradeSpeed(gameVars);
-
-        //Increase the top 3 racers top 3 finish stats
-        increaseTop3RaceFinishes(gameVars);
-
-        //Increase the fight winning raptors strength
-        upgradeStrength(gameVars);
+        //Call the main stats upgrades
+        handleMainStats(gameVars);
     }
 
     //---------------------------QP--------------------------------------//
@@ -661,12 +610,7 @@ library gameLib {
         //Emit an event saying that the race has started
         emit CompetitiveRaceStarted(gameVars.minterIndexes, gameVars.raptors);
 
-        //gets fighters, finds the winner & adds both indexes to ignore for choosing race winner
-        gameVars = getFighters(gameVars);
-        gameVars = getFightWinner(gameVars);
-
-        //gets the winner & next two places
-        gameVars = getWinner(gameVars);
+        gameVars = _play(gameVars);
 
         //index 0 = winner; index 1 = second; index 2 = third
         emit Top3(
@@ -698,14 +642,8 @@ library gameLib {
         //Increase the winners comp wins stat
         increaseCompWins(gameVars);
 
-        //Increase the winners speed
-        upgradeSpeed(gameVars);
-
-        //Increase the top 3 raptors top 3 finish stats
-        increaseTop3RaceFinishes(gameVars);
-
-        //Increase the fight winners strength stat
-        upgradeStrength(gameVars);
+        //Call the main stats upgrades
+        handleMainStats(gameVars);
     }
 
     // //---------------------------------Comp--------------------------------//
@@ -720,12 +658,7 @@ library gameLib {
         //Emit an event saying that the race has started
         emit DeathRaceStarted(gameVars.minterIndexes, gameVars.raptors);
 
-        //gets fighters, finds the winner & adds them to indexes to ignore for choosing winner
-        gameVars = getFighters(gameVars);
-        gameVars = getFightWinner(gameVars);
-
-        //gets the winner & next two places
-        gameVars = getWinner(gameVars);
+        gameVars = _play(gameVars);
 
         //index 0 = winner; index 1 = second; index 2 = third
         emit Top3(
@@ -758,7 +691,7 @@ library gameLib {
         StatStore storage store = statStore();
 
         //Burn the raptor
-        IStats(store.statContract).burn(minterIndex, raptor);
+        if(!IStats(store.statContract).burn(minterIndex, raptor)) revert ErrorBurning();
     }
 
     //Handle the stat changes 
@@ -766,7 +699,16 @@ library gameLib {
 
         //Increase the Death Race wins for the winner
         increaseDeathRaceWins(gameVars);
+
+        //Increase the number of death races that each survivor has survived
+        increaseDRSurvived(gameVars);
+
+        //Call the main stats upgrades
+        handleMainStats(gameVars);
         
+    }
+
+    function handleMainStats(GameVars memory gameVars) internal {
         //Increase the winners speed
         upgradeSpeed(gameVars);
 

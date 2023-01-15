@@ -10,6 +10,9 @@ import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {IUniswapV2Router02} from "./FlatRouter.sol";
 
 contract RaptorCoin is ERC20, ERC20Burnable {
+
+    error NullAddress();
+
     address private admin;
 
     address private WMatic;
@@ -27,6 +30,15 @@ contract RaptorCoin is ERC20, ERC20Burnable {
         address _uniswapV2RouterAddr,
         address _liquidityLockedAddress
     ) ERC20("RaptorCoin", "RC") {
+
+        if(
+            _WMatic == address(0)
+            ||
+            _uniswapV2RouterAddr == address(0)
+            ||
+            _liquidityLockedAddress == address(0)    
+        ) revert NullAddress();
+
         admin = msg.sender;
         liquidityPercent = 15;
         WMatic = _WMatic;
@@ -39,12 +51,8 @@ contract RaptorCoin is ERC20, ERC20Burnable {
         _;
     }
 
-    modifier onlyApproved() {
-        require(approved[msg.sender], "ERR:NG"); //NG => Not Game
-        _;
-    }
-
     function addApprovedAddress(address _addr) external onlyAdmin {
+        if(_addr == address(0)) revert NullAddress();
         approved[_addr] = true;
     }
 
@@ -52,9 +60,11 @@ contract RaptorCoin is ERC20, ERC20Burnable {
         delete approved[_addr];
     }
 
-    function mint(uint256 amount, address to) external onlyApproved {
+    function mint(uint256 amount, address to) external returns(bool){
+        require(approved[msg.sender], "ERR:NG"); //NG => Not Game
         require(to != address(0), "ERR:ZA");
         _mint(to, amount);
+        return true;
     }
 
     /**
@@ -62,8 +72,9 @@ contract RaptorCoin is ERC20, ERC20Burnable {
      *
      * See {ERC20-_burn}.
      */
-    function Burn(uint256 amount) public virtual {
+    function Burn(uint256 amount) public virtual returns(bool){
         _burn(_msgSender(), amount);
+        return true;
     }
 
     /**
@@ -77,9 +88,10 @@ contract RaptorCoin is ERC20, ERC20Burnable {
      * - the caller must have allowance for ``accounts``'s tokens of at least
      * `amount`.
      */
-    function BurnFrom(address account, uint256 amount) public virtual {
+    function BurnFrom(address account, uint256 amount) public virtual returns(bool){
         _spendAllowance(account, _msgSender(), amount);
         _burn(account, amount);
+        return true;
     }
 
     //Send 2% to the liquidty pool
@@ -117,7 +129,7 @@ contract RaptorCoin is ERC20, ERC20Burnable {
     }
 
     //This function must only be callable by the transfer function
-    function addLiquidity(uint256 tokenAmount) internal {
+    function addLiquidity(uint256 tokenAmount) private {
         //We define a uint variable to be used later
         uint256 maticAmount;
         uint256 tokenAmountToAdd;
@@ -126,10 +138,10 @@ contract RaptorCoin is ERC20, ERC20Burnable {
         path[0] = address(this);
         path[1] = WMatic;
 
+        uint256 initialBal = address(this).balance;
+
         //Convert 50% of the liquidity fee to matic & then deposit both into the liquidity pool
         tokenAmountToAdd = tokenAmount / 2;
-
-        uint256 initialBal = address(this).balance;
 
         uint256 tokenAmountToSwap = tokenAmount - tokenAmountToAdd;
 

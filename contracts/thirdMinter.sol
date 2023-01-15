@@ -8,7 +8,9 @@ import "./interfaces/IStats.sol";
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract ThirdMinter is ERC721AQueryable {
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract ThirdMinter is ERC721AQueryable, Ownable {
 
     error NotAdmin();
     error NullAddress();
@@ -25,13 +27,15 @@ contract ThirdMinter is ERC721AQueryable {
 
     error InvalidSeason();
     error InvalidRaptor();
+    error InvalidIndex();
 
     error NotStatContract();
 
-    address private admin;
+
     address private minter;
-    address private usd;
     address private stats;
+
+    address[] private usdTokens;
 
     uint256 public seasonID;
     uint256 public breedingFee;
@@ -41,9 +45,11 @@ contract ThirdMinter is ERC721AQueryable {
     bool public breedingEnabled;
 
     address[] private payees;
-    uint256[] private shares; 
+    uint16[] private shares; 
+    
+    uint16 private totalShares;
 
-    uint256 private minPayout;
+    // uint256 private minPayout;
 
     mapping(uint256 => mapping(uint256 => bool)) private bred;
 
@@ -58,16 +64,15 @@ contract ThirdMinter is ERC721AQueryable {
         string memory _symbol,
         address _minter,
         address _stats,
-        address _usd,
+        address[] memory _usdTokens,
         uint256 _breedingFee,
         address[] memory _payees,
         uint16[] memory _shares
-    )ERC721A(_name,_symbol){
+    )ERC721A(_name,_symbol) Ownable(){
 
         if(
             _minter == address(0) ||
-            _stats == address(0) ||
-            _usd == address(0)
+            _stats == address(0) 
         ) revert NullAddress();
 
         if(_breedingFee == 0) revert NullNumber();
@@ -79,10 +84,23 @@ contract ThirdMinter is ERC721AQueryable {
 
         if(_payees.length != _shares.length || _payees.length == 0) revert WrongLength();
 
+        uint256 total = 0;
+
         for(uint256 i = 0; i < _payees.length;){
 
             if(_payees[i] == address(0)) revert NullAddress();
             if(_shares[i] == 0) revert NullNumber();
+            
+            total += _shares[i];
+
+            unchecked{
+                i++;
+            }
+        }
+
+        for(uint256 i = 0 ; i < _usdTokens.length;){
+
+            if(_usdTokens[i] == address(0)) revert NullAddress();
 
             unchecked{
                 i++;
@@ -91,48 +109,33 @@ contract ThirdMinter is ERC721AQueryable {
 
         minter = _minter;
         stats = _stats; 
-        usd = _usd;
+        usdTokens = _usdTokens;
         breedingFee = _breedingFee;
         seasonID = 0;
         breedingEnabled = false;
         shares = _shares;
         payees = _payees;
-        minPayout = _breedingFee * 10;
-
+        totalShares = total;
     }
 
-    modifier onlyAdmin{
-        if(admin != _msgSender()) revert NotAdmin();
-        _;
-    }
 
     modifier NotNullString(string memory str){
         if(bytes(str).length == 0) revert NullString();
         _;
     }
 
-    modifier NotNullAddress(address addr){
-        if(addr == address(0)) revert NullAddress();
-        _;
-    }
 
-    
 
-    function setAdmin(address _new) external onlyAdmin NotNullAddress(_new){
-        admin = _new;
-    }
-
-    function setBaseURI(string memory _new)external onlyAdmin NotNullString(_new){
+    function setBaseURI(string memory _new)external onlyOwner NotNullString(_new){
         baseURI = _new;
     }
 
-    function startNewSeason(string memory _CID) external onlyAdmin NotNullString(_CID){
+    function startNewSeason(string memory _CID) external onlyOwner NotNullString(_CID){
 
         if(breedingEnabled) revert AlreadyBreeding();
 
-        uint256 id = seasonID;
+        uint256 id = ++seasonID;
 
-        seasonID += 1;
 
         breedingEnabled = true;
 
@@ -141,13 +144,13 @@ contract ThirdMinter is ERC721AQueryable {
 
     }
 
-    function setCID(string memory _new, uint256 _seasonID) external onlyAdmin NotNullString(_new) {
+    function setCID(string memory _new, uint256 _seasonID) external onlyOwner NotNullString(_new) {
         if(_seasonID == 0 || _seasonID > seasonID) revert InvalidSeason();
 
         cids[_seasonID] = _new;
     }
 
-    function endSeason() external onlyAdmin {
+    function endSeason() external onlyOwner {
         if(!breedingEnabled) revert NotCurrentlyBreeding();
 
         uint256 id = seasonID;
@@ -157,19 +160,27 @@ contract ThirdMinter is ERC721AQueryable {
         mintRanges[id][1] = totalSupply();
     }
 
-    function setBreedingFee(uint256 _fee) external onlyAdmin {
+    function setBreedingFee(uint256 _fee) external onlyOwner {
         if(_fee == 0) revert NullNumber();
         breedingFee = _fee;
     }
 
-    function setUSD(address _new) external onlyAdmin NotNullAddress(_new){
-        usd = _new;
+    function setUSD(address[] memory _new) external onlyOwner {
+        for(uint256 i = 0; i < _new.length;){
+
+            if(_new[i] == address(0)) revert NullAddress();
+
+            unchecked{
+                i++;
+            }
+        }
+        usdTokens = _new;
     }
 
     function setSplit(
         address[] memory _payees,
         uint16[] memory _shares
-    ) external onlyAdmin {
+    ) external onlyOwner {
 
         if(_payees.length != _shares.length || _payees.length == 0) revert WrongLength();
 
@@ -187,7 +198,7 @@ contract ThirdMinter is ERC721AQueryable {
         payees = _payees;
     }
 
-    function breed(uint256[2] memory raptors) external {
+    function breed(uint256[2] memory raptors, uint256 usdArrIndex) external {
         if(!breedingEnabled) revert NotCurrentlyBreeding();
         
         if(raptors[0] == 0 || raptors[1] == 0) revert InvalidRaptor();
@@ -204,6 +215,10 @@ contract ThirdMinter is ERC721AQueryable {
             bred[id][raptors[0]] || bred[id][raptors[1]]
         ) revert AlreadyBred();
 
+        address usd = usdTokens[usdArrIndex];
+
+        if(usd == address(0)) revert InvalidIndex();
+
         IERC20 token = IERC20(usd);
 
         uint256 amountApproved = token.allowance(caller,address(this));
@@ -214,28 +229,24 @@ contract ThirdMinter is ERC721AQueryable {
 
         uint256 bal = token.balanceOf(address(this));
 
-        if(bal > minPayout) splitFunds(bal,token);
+        splitFunds(bal,token);
 
         _mint(caller, 1);
 
     }
 
-    function splitFunds(uint256 amount,IERC20 token) internal {
+    function splitFunds(uint256 amount,IERC20 token) private {
         
-        uint256 totalShares = 0;
+        uint256 _totalShares = totalShares;
 
         uint256[] memory _shares = shares;
 
         address[] memory _payees = payees;
-        for(uint i = 0; i < _shares.length;){
 
-            totalShares += _shares[i];
-
-        }
 
         for(uint256 i =0; i < _shares.length;){
 
-            token.transfer(_payees[i], amount * _shares[i] / totalShares);
+            token.transfer(_payees[i], amount * _shares[i] / _totalShares);
 
             unchecked{
                 i++;
@@ -243,7 +254,7 @@ contract ThirdMinter is ERC721AQueryable {
         }
     }
 
-    function getOwnerOf(uint256 raptor) internal view returns(address){
+    function getOwnerOf(uint256 raptor) private view returns(address){
         return IERC721A(minter).ownerOf(raptor);
     }
 

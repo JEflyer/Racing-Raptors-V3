@@ -7,6 +7,7 @@ struct GameVars {
     uint8[8] minterIndexes;
     uint8[2] fighters;
     uint8 fightWinner;
+    uint8 fightLoser;
     uint8[3] places;
     bool dr;
 }

@@ -11,11 +11,18 @@ import "./ERC721A/IERC721A.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/ICoin.sol";
 
+import "./interfaces/IRate.sol";
+import "./interfaces/IStats.sol";
+
 //Imported the context library for safe usage of msg.sender
 import "@openzeppelin/contracts/utils/Context.sol";
 
-
 contract Marketplace is Context{
+
+    error NullArray();
+    error NullAddress();
+    error NullNumber();
+    error WrongSaleType();
 
     //Fixed Sale - Lister set a buy now price
     //Auction - Lister set a minimum auction price
@@ -23,6 +30,8 @@ contract Marketplace is Context{
         FixedSale,
         Auction
     }
+    
+
 
     //tokenId => This is the token ID of the token for sale
     //minterIndex => This is a choice of either minter A or minter B
@@ -35,20 +44,18 @@ contract Marketplace is Context{
     //timeSaleEnds => This is the time upon which the sale ends & the winner or owner can collect the NFT back
     //active => This stores wether the sale is currently active or wether it has finished 
     struct SaleDetails {
-        uint16 tokenId;
-        uint8 minterIndex;
+        address seller;
+        address currentHighestBidder;
         SaleType saleType;
         uint256 buyPrice;
         uint256 minAuctionPrice;
         uint256 currentAuctionPrice;
-        address seller;
-        address currentHighestBidder;
         uint32 timeSaleEnds;
+        uint16 tokenId;
+        uint8 minterIndex;
         bool active;
     }
 
-    //Stores the latest saleID 
-    uint256 private saleID;
 
     //Stores the details regarding a sale 
     mapping(uint256 => SaleDetails) private saleDetails;
@@ -56,19 +63,28 @@ contract Marketplace is Context{
     //Stores the latest sale id for a token ID & MinterIndex
     mapping(uint16 => mapping(uint8 => uint256)) private latestSaleID;
 
-    //Define the interfaces for the minters
-    IERC721A private minter1;
-    IERC721A private minter2;
+    //Stores instances of the ERC721A contracts
+    IERC721A[] private minters;
 
     //Define the interface for raptor coin
-    IERC20 private token;
-    ICoin private token2;
+    ICoin private token;
+
+    IStats private stats;
+
+    //Stores the address of the admin of this contract
+    address private admin;
+
+    address private rate;
 
     //Stores the percentage of each transaction amount that will be burned 
     uint256 private feePercent;
 
-    //Stores the address of the admin of this contract
-    address private admin;
+    //Stores the latest saleID 
+    uint256 private saleID;
+
+    uint256 private numberOfRaptorsSold;
+
+    uint256 private averageResalePrice;
 
 
     //_minter1 => This is the address of the first minter
@@ -76,25 +92,54 @@ contract Marketplace is Context{
     //_feePercent => This is the percentage of each sale that will be burned
     //_token => This is the address of raptor coin
     constructor(
-        address _minter1,
-        address _minter2,
+        address[] _minters,
         uint256 _feePercent,
-        address _token
+        address _token,
+        address _rate,
+        address _stats
     ){
 
-        //Building ERC721A interfaces for each minter address
-        minter1 = IERC721A(_minter1);
-        minter2 = IERC721A(_minter2);
+        if(_minters.length == 0) revert NullArray();
+
+        IERC721A[] memory interfaces;
+
+        for(uint256 i = 0; i < _minters.length;){
+
+            if(_minters[i]) revert NullAddress();
+
+            interfaces.push(IERC721A(_minters[i]));
+
+            unchecked{
+                i++;
+            }
+        }
+
+        if(_feePercent == 0) revert NullNumber();
+
+        if(_token == address(0)) revert NullAddress();
+        
+        if(_rate == address(0)) revert NullAddress();
+        if(_stats == address(0)) revert NullAddress();
+
+        minters = interfaces;
 
         //Storing the burn percent in storage
         feePercent = _feePercent;
 
         //Building the ERC20 interface for the token address
-        token = IERC20(_token);
-        token2 = ICoin(_token);
+        token = ICoin(_token);
 
         //Setting the admin as the creator of this contract
         admin = _msgSender();
+
+        numberOfRaptorsSold = 0;
+
+        averageResalePrice = 0;
+
+        rate = _rate;
+
+        stats = IStats(_stats);
+
     }
 
     //This modifier will be applied to multiple functions
@@ -102,7 +147,7 @@ contract Marketplace is Context{
     modifier onlyAdmin{
 
         //Check that the caller is the admin
-        require(_msgSender() == admin, "ERR:NA");//NA => Not Admin
+        if(_msgSender() != admin) revert NotAdmin();//NA => Not Admin
 
         //This is to signify the code in the function this modifier is attached to can now run
         _;
@@ -111,13 +156,35 @@ contract Marketplace is Context{
     //This function is only callable by the admin
     //This function sets a new admin
     function changeAdmin(address _new) external onlyAdmin {
+        if(_new == address(0)) revert NullAddress();
         admin = _new;
     } 
+
+    function relinquishControl() external onlyAdmin {
+        delete admin;
+    }
 
     //This function is only callable by the admin
     //This function sets the burn percentage taken on each sale
     function setFeePercent(uint256 _new) external onlyAdmin {
+        if(_new == 0) revert NullNumber();
         feePercent = _new;
+    }
+
+    function update(uint256 price, uint256 burnFee) private {
+        uint256 numSold = ++numberOfRaptorsSold;
+
+        uint256 difference;
+
+        if(averageResalePrice > price){
+            difference = averageResalePrice - price;
+            averageResalePrice -= (difference/numSold);
+        }else{
+            difference = price - averageResalePrice;
+            averageResalePrice += (difference/numSold);
+        }
+
+        IRate(rate).acceptUpdateFromMarketplace(burnFee, averageResalePrice);
     }
 
     //Anyone can call this function
@@ -130,41 +197,44 @@ contract Marketplace is Context{
     function createSale(uint16 _tokenId, uint8 _minterIndex,SaleType _type, uint256 _price, uint32 _lengthOfSale) external {
 
         //Check that the sale type requested is not  out of bounds
-        require(uint(_type) < 2, "ERR:WT");//WT => Wrong Type
+        if(uint(_type) > 2) revert WrongSaleType();//WT => Wrong Type
 
         //Check that the seller is not setting a zero price
-        require(_price > 0, "ERR:ZP");//ZP => Zero Price
+        if(_price == 0) revert NullNumber();//ZP => Zero Price
+
+        if(_lengthOfSale < 60 * 60 * 12) revert NotLongEnough();
 
         //Get the address of the seller
         address caller = _msgSender();
 
-        //Call specified minter
-        if(_minterIndex == 0){
+        if(caller == address(0)) revert NullAddress();
 
-            //Check that the seller is the owner of the token ID
-            require(minter1.ownerOf(uint256(_tokenId)) == caller, "ERR:NO");//NO => Not Owner
+        //Define an instance of the minter
+        IERC721A minter;
 
-            //Check that this contract is approved to move that token
-            require(minter1.getApproved(_tokenId) == address(this),"ERR:NA");//NA => Not Approved
+        if( _minterIndex > minters.length -1) {
+            //Check on the stats contract if the minter index exists, returns with address if true
+            address minterCheck = stats.checkMinterIndex(_minterIndex);
+            
+            if(minterCheck == address(0)){
+                revert IncorrectMinter();
+            }else {
+                minters.push(IERC721A(minterCheck));
+                minter = IERC721A(minterCheck);
+            }
 
-            //Transfer the NFT from the seller to this contract
-            minter1.transferFrom(caller, address(this), _tokenId);
-        
-        }else if (_minterIndex == 1){
-
-            //Check that the seller is the owner of the token ID
-            require(minter2.ownerOf(uint256(_tokenId)) == caller, "ERR:NO");//NO => Not Owner
-        
-            //Check that this contract is approved to move that token
-            require(minter2.getApproved(_tokenId) == address(this),"ERR:NA");//NA => Not Approved
-
-            //Transfer the NFT from the seller to this contract
-            minter2.transferFrom(caller, address(this), _tokenId);        
-        
         }else {
-            //If the minter index is not 0 or 1 it is out of bounds, revert.
-            revert("Minter index out of bounds");
+            minter = minters[_minterIndex];
         }
+
+        //Check that the seller is the owner of the token ID
+        if(minter.ownerOf(uint256(_tokenId)) != caller) revert NotOwner();//NO => Not Owner
+    
+        //Check that this contract is approved to move that token
+        if(minter.getApproved(_tokenId) != address(this)) revert NotApproved();//NA => Not Approved
+
+        //Transfer the NFT from the seller to this contract
+        minter.transferFrom(caller, address(this), _tokenId);  
 
         //Get saleID into memory & increment it before assigning it to the saleId variable
         uint256 saleId = ++saleID;
@@ -217,22 +287,24 @@ contract Marketplace is Context{
         SaleDetails storage details = saleDetails[_saleID];        
 
         //Check that sale is active
-        require(details.active, "ERR:NA");//NA => Not Active
+        if(!details.active) revert NotActive();//NA => Not Active
 
         //Check that the amount the caller is paying is greater than or equal to the buy price
-        require(_amount >= details.buyPrice ,"ERR:PA");//PA => Paying Amount
+        if(_amount != details.buyPrice) revert WrongValue() ;//PA => Paying Amount
 
         //Get the address of the purchaser
         address caller = _msgSender();
+
+        if(caller == address(0)) revert NullAddress();
 
         //Get the value that the purchaser has approved this contract to spend
         uint256 amountApproved = token.allowance(caller, address(this));
 
         //Check that the amount approved is greater than or equal to the amount the purchaser is paying
-        require(amountApproved >= _amount, "ERR:AA");//AA => Approved Amount
+        if(amountApproved < _amount) revert ApprovedAmount();//AA => Approved Amount
 
         //Check that the sale type is of type FixedSale
-        require(uint8(details.saleType) == 0, "ERR:ST");//ST => Sale Type
+        if(uint8(details.saleType) != 0) revert WrongSale();//ST => Sale Type
 
         //Calculate the amount that will be burned
         uint256 burnAmount = details.buyPrice * feePercent / 100;
@@ -241,70 +313,70 @@ contract Marketplace is Context{
         token.transferFrom(caller,details.seller,details.buyPrice - burnAmount);
 
         //Burn the burn amount
-        token2.BurnFrom(caller,burnAmount);
+        token.BurnFrom(caller,burnAmount);
 
-        //Specific minter operations
-        if(details.minterIndex == 0){
-
-            //Transfer NFT from this contract to the purchaser 
-            minter1.transferFrom(address(this),caller,details.tokenId);
+        //Transfer NFT from this contract to the purchaser 
+        minter.transferFrom(address(this),caller,details.tokenId);
         
-        }else if(details.minterIndex == 1) {
-
-            //Transfer NFT from this contract to the purchaser 
-            minter2.transferFrom(address(this),caller,details.tokenId);
-        }
-
         //Delete the bool keeping track of if the sale is active or not. This by defaults sets the variable back to false & refunds gas to the caller
         delete details.active;
+
+        update(details.buyPrice,burnAmount);
     }
 
     //Anyone can call this function
     // _saleID => This is the sale ID that contains the details of the purchase
-    // _value => This is the amount that the bidder is looking to pay
-    function bidOnItem(uint256 _saleID, uint256 _value) external {
+    // _amount => This is the amount that the bidder is looking to pay
+    function bidOnItem(uint256 _saleID, uint256 _amount) external {
         
         //Perform one SLOAD assembly function 
         SaleDetails storage details = saleDetails[_saleID];        
 
+        if(_amount == 0) revert NullNumber();
+
         //Check that the sale is active
-        require(details.active, "ERR:NA");//NA => Not Active
+        if(!details.active) revert NotActive() ;//NA => Not Active
 
         //Get the address of the caller
         address caller = _msgSender();
+
+        if(caller == address(0)) revert NullAddress();
         
         //Get the amount that the caller has approved this contract to spend
         uint256 amountApproved = token.allowance(caller, address(this));
 
-        //Check the amount that the caller has approved is greater than or equal to the amount the caller is looking to bid
-        require(amountApproved >= _value,"ERR:AA");//AA => Amount Approved
+        //Check that the amount approved is greater than or equal to the amount the purchaser is paying
+        if(amountApproved < _amount) revert ApprovedAmount();//AA => Approved Amount
         
+        //Check that the sale type is of type Auction
+        if(uint8(details.saleType) != 1) revert WrongSale();//ST => Sale Type
+
         //If there has been a bidder before
         if(details.currentAuctionPrice != 0){
 
             //Check that the value is greater than the current bid
-            require(_value > details.currentAuctionPrice, "ERR:LB");//LB => Low Balling
+            if(_amount < details.currentAuctionPrice) revert LowBalling();//LB => Low Balling
         }else {
 
             //Otherwise check that the value is greater than or equal to the minimum auction price
-            require(amountApproved >= details.minAuctionPrice, "ERR:LB");//LB => Low Balling
+            if(_amount < details.minAuctionPrice) revert LowBalling();//LB => Low Balling
         }
         
         //Burn the bidders tokens
-        token2.BurnFrom(caller,_value);
+        token.BurnFrom(caller,_amount);
 
         //If there has been a bidder before
         if(details.currentHighestBidder != address(0)){
 
             //Mint the old bidder their tokens back
-            token2.mint(details.currentAuctionPrice, details.currentHighestBidder);
+            token.mint(details.currentAuctionPrice, details.currentHighestBidder);
         }
 
         //Set the current highest bidder to the caller
         details.currentHighestBidder = caller;
 
         //Set the highest auction price 
-        details.currentAuctionPrice = _value;
+        details.currentAuctionPrice = _amount;
     }
 
     //This function is callable by the winner of the given sale ID
@@ -314,38 +386,53 @@ contract Marketplace is Context{
         SaleDetails storage details = saleDetails[_saleID];       
 
         //Check that the sale is active
-        require(details.active, "ERR:NA");//NA => Not Active
+        if(!details.active) revert NotActive();//NA => Not Active
 
         //Get the address of the caller 
         address caller = _msgSender();
 
+        if(caller == address(0)) revert NullAddress();
+
         //Check that the sale is able to be finished
-        require(details.timeSaleEnds <= block.timestamp, "ERR:NO");//NO => Not Over
+        if(details.timeSaleEnds > block.timestamp) revert NotOver();//NO => Not Over
 
         //Check that the caller is the winner
         //At this point the check for sale type is done as if this is a fixed sale saleType then the currentHighestBidder would equal address(0)
-        require(details.currentHighestBidder == caller, "ERR:DW");//DW => Didn't Win
+        if(details.currentHighestBidder != caller) revert NotWinner();//DW => Didn't Win
 
-        //Specific minter actions
-        if(details.minterIndex == 0){
+    
+        //Define an instance of the minter
+        IERC721A minter;
 
-            //Transfer the NFT to the winner
-            minter1.transferFrom(address(this),caller,details.tokenId);
-        
-        }else if(details.minterIndex == 1) {
+        if( details.minterIndex > minters.length -1) {
+            //Check on the stats contract if the minter index exists, returns with address if true
+            address minterCheck = stats.checkMinterIndex(details.minterIndex);
+            
+            if(minterCheck == address(0)){
+                revert IncorrectMinter();
+            }else {
+                minters.push(IERC721A(minterCheck));
+                minter = IERC721A(minterCheck);
+            }
 
-            //Transfer the NFT to the winner
-            minter2.transferFrom(address(this),caller,details.tokenId);
+        }else {
+            minter = minters[details.minterIndex];
         }
+
+        //Transfer the NFT to the winner
+        minter.transferFrom(address(this),caller,details.tokenId);
 
         //Calculate the burn amount
         uint256 burnAmount = details.currentAuctionPrice * feePercent / 100;
 
         //Mint the receive amount to the seller
-        token2.mint(details.currentAuctionPrice - burnAmount, details.seller);
+        token.mint(details.currentAuctionPrice - burnAmount, details.seller);
 
         //Delete the bool tracking wether the sale is active or not, setting it to false in the process & refunding gas
         delete details.active;
+
+        update(details.currentAuctionPrice,burnAmount);
+
     }
 
     //Seller unlist item
@@ -354,32 +441,44 @@ contract Marketplace is Context{
         SaleDetails storage details = saleDetails[_saleId];       
 
         //Check that the sale is active
-        require(details.active, "ERR:NA");//NA => Not Active
+        if(!details.active) revert NotActive();//NA => Not Active
 
         //Get the address of the caller 
         address caller = _msgSender();
 
+        if(caller == address(0)) revert NullAddress();
+
         //Check that the seller is the caller
-        require(details.seller == caller, "ERR:NS");//NS => Not Seller
+        if(details.seller != caller) revert NotSeller();//NS => Not Seller
 
         //If the sale is an auction check if there has been any bids, if so repay the bidder
         if(uint(details.saleType) == 1){
             if(details.currentAuctionPrice != 0){
-                token2.mint(details.currentAuctionPrice, details.currentHighestBidder);
+                token.mint(details.currentAuctionPrice, details.currentHighestBidder);
             }
         }
 
-        //Specific minter functions
-        if(details.minterIndex == 0 ){
+        //Define an instance of the minter
+        IERC721A minter;
 
-            //Transfer the NFT back to the seller
-            minter1.transferFrom(address(this),caller,details.tokenId);
+        if( details.minterIndex > minters.length -1) {
+            //Check on the stats contract if the minter index exists, returns with address if true
+            address minterCheck = stats.checkMinterIndex(details.minterIndex);
+            
+            if(minterCheck == address(0)){
+                revert IncorrectMinter();
+            }else {
+                minters.push(IERC721A(minterCheck));
+                minter = IERC721A(minterCheck);
+            }
+
         }else {
-
-            //Transfer the NFT back to the seller
-            minter2.transferFrom(address(this),caller,details.tokenId);
+            minter = minters[details.minterIndex];
         }
 
+        //Transfer the NFT back to the seller
+        minter.transferFrom(address(this),caller,details.tokenId);
+        
         //Delete the active bool so it turns false & refunds gas
         delete details.active;
     }

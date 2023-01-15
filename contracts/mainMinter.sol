@@ -4,11 +4,8 @@ pragma solidity 0.8.15;
 //import ERC721AQueryable
 import "./ERC721A/ERC721AQueryable.sol";
 
-//import reentrancy guard
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-//import ERC721 interface
-import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 //import RND custom contract
 import "./RND.sol";
@@ -23,15 +20,16 @@ import "./FlatRouter.sol";
 import "./libraries/mainMinterLib.sol";
 
 //Define contract
-//Inherit the ERC721AQueryable, RND, IERC721 & Reentrancy Guard
-contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
+//Inherit the ERC721AQueryable & RND
+contract MainMinter is ERC721AQueryable, RNG, Ownable{
     //winner declared upon full mint completion
-    event PorscheWinner(address winner);
+    event Winner(address winner);
 
     //stored here to make sure library event is recorded in explorer correctly
     event PriceIncrease(uint256 newPrice);
 
     error NullAddress();
+    error NullArray();
     error NullAmount();
     error NotAdmin();
     error AlreadyRevealed();
@@ -50,15 +48,7 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
     //This variable is private because it is not needed to be retreived from the contract
     IStats private stats;
 
-    IUniswapV2Router02 private exchange;
-
-    address private usd;
-
-    address private wmatic;
-
-    //Stores the address of the admin wallet address
-    //This variable is private because it is not needed to be retreived from the contract
-    address private admin;
+    address[] public allowedUSDTokens;
 
     //Stores the addresses of the wallets that minting fees will be divided between
     //This variable is private because it is not needed to be retreived from the contract
@@ -68,19 +58,18 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
     //This variable is private because it is not needed to be retreived from the contract
     uint16[] private shares;
 
+    uint16 private totalShares;
+
     //Stores the limit of NFTs that can be minted
     //This variable is private because it is not needed to be retreived from the contract
-    uint16 private totalLimit;
+    uint256 private totalLimit;
 
     //Stores the current price to mint a NFT in wei
     //This variable is private because there is a function to retreive it from the contract
     uint256 private currentPrice;
 
-    //bool used to keep track of if sale is active or not
-    //This variable is private because it is not needed to be retreived from the contract
-    bool private active;
 
-    mapping(uint16 => bool) private isFoundingRaptor;
+    mapping(uint256 => bool) private isFoundingRaptor;
 
     //metadata URI vars
     //These variables are private because they are not needed to be retreived from the contract
@@ -92,6 +81,10 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
     //Stores whether the NFT images have been revealed or not
     //This variable is private because it is not needed to be retreived from the contract
     bool private revealed;
+
+    //bool used to keep track of if sale is active or not
+    //This variable is private because it is not needed to be retreived from the contract
+    bool private active;
 
     //Params
     //subscriptionId => This is used for tracking & paying for oracle calls
@@ -107,22 +100,18 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
         string memory _name,
         string memory _symbol,
         address _stats,
-        address _router,
-        address _usd,
-        address _wmatic
+        address[] memory _usdTokens
     )
         //Initializing the ERC721A contract
         ERC721A(_name, _symbol)
         //
         //Initializing the custom Oracle contract
         RNG(_subscriptionId, _vrfCoordinator, _keyHash)
+        Ownable()
     {
         if(
             _vrfCoordinator == address(0) ||
-            _stats == address(0) ||
-            _router == address(0) ||
-            _usd == address(0) ||
-            _wmatic == address(0) 
+            _stats == address(0)
         ) revert NullAddress();
 
         if(
@@ -130,53 +119,36 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
             bytes(_symbol).length == 0 
         ) revert NullString();
 
-        //Set the current price to 5 USDT
-        currentPrice = 5000000;
+        for(uint256 i = 0; i < _usdTokens.length;){
+
+            if(_usdTokens[i] == address(0)) revert NullAddress();
+
+            unchecked{
+               i++; 
+            }
+        }
+
+        //Set the current price to 20 USD
+        currentPrice = 20000000;
 
         //Declaring the total limit to equal 10k
-        totalLimit = 10000;
+        totalLimit = 5000;
 
         //Defining the stats contract to communicate with
         stats = IStats(_stats);
 
-        //Building the uniswap router contract
-        exchange = IUniswapV2Router02(_router);
-
         //Assign the address of the usd token we are using
-        usd = _usd;
+        allowedUSDTokens = _usdTokens;
 
-        //Assign the address of wrapped matic
-        wmatic = _wmatic;
     }
 
-    //A modifier is repeated code that can be attached to multiple functions
-    //This modifier requires that the caller of the function is the admin of the contract
-    modifier onlyAdmin() {
-        if(_msgSender() != admin) revert NotAdmin();
-        _;
-    }
-
-    modifier NotNull(string memory str){
+    modifier NotNullString(string memory str){
         if(bytes(str).length == 0) revert NullString();
         _;
     }
 
     //-------------------------ADMIN FUNCTIONS -------------------------//
-    function changeAdmin(address _new) external onlyAdmin {
-
-        //Check that the address being set is not a zero address
-        if(_new == address(0)) revert NullAddress();
-        
-        //Assign the new admin address
-        admin = _new;
-    }
-
-    function relinquishControl() external onlyAdmin {
-        //By deleting the admin it is by default address(0)
-        delete admin;
-    }
-
-    function reveal() external onlyAdmin {
+    function reveal() external onlyOwner {
 
         //Check that the CID is not already revealed
         if(revealed) revert AlreadyRevealed();
@@ -185,25 +157,25 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
         revealed = true;
     }
 
-    function setBaseURI(string memory base) external NotNull(base) onlyAdmin {
+    function setBaseURI(string memory base) external NotNullString(base) onlyOwner {
 
         //Set the base URI
         baseURI = base;
     }
 
-    function setCID(string memory cid) external NotNull(cid) onlyAdmin {
+    function setCID(string memory cid) external NotNullString(cid) onlyOwner {
 
         //Set the CID
         ciD = cid;
     }
 
-    function setNotRevealed(string memory not) external NotNull(not) onlyAdmin {
+    function setNotRevealed(string memory not) external NotNullString(not) onlyOwner {
 
         //Set the not revealed URI
         notRevealed = not;
     }
 
-    function flipSaleState(bool state) external onlyAdmin {
+    function flipSaleState(bool state) external onlyOwner {
         //Pause or unpause the contract
         active = state;
     }
@@ -212,7 +184,7 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
     //These payee addresses other than the teams payout address is going to be event or time dependant contracts 
     function updateSplit(address[] memory _payees, uint16[] memory _shares)
         external
-        onlyAdmin
+        onlyOwner
     {
         //Check that the arrays are the same size
         if(_payees.length != _shares.length) revert WrongLength(); 
@@ -220,13 +192,15 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
         //Check that the arrays are not empty
         if (_payees.length == 0) revert NullLength();
 
-        uint256 total = 0;
+        uint16 total = 0;
 
         //Check that the sum of all shares do not exceed the maximum number a uint16 can hold 
         //Because the addition happens out of the unchecked box it is being checked by safe math already 
         for(uint256 i = 0; i < _shares.length;){
 
             total += _shares[i];
+
+            if(_shares[i] == 0) revert NullAmount(); 
 
             //Check that the receiving addresses are not equal to address(0)
             if(_payees[i] == address(0)) revert NullAddress();
@@ -236,6 +210,8 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
             }
         }
 
+        totalShares = total;
+
         //Assing the new payees
         payees = _payees;
 
@@ -243,25 +219,96 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
         shares = _shares;
     }
 
+    function setAllowedUSDAddresses(address[] memory _new) external onlyOwner {
+        if(_new.length == 0) revert NullArray();
+
+        for(uint256 i = 0; i < _new.length;){
+
+
+            if(_new[i] == address(0)) revert NullAddress();
+
+            unchecked{
+                i++;
+            }
+        }
+
+        allowedUSDTokens = _new;
+    }
+
+    //This function is only callable by the admin
+    function reward(address[] memory receivers, uint8[] memory amounts)
+        external
+        onlyOwner
+    {
+        //Check that the arrays are the same length
+        if (receivers.length != amounts.length) revert WrongLength();
+
+        //Check that the arrays length does not equal zero
+        if (receivers.length == 0) revert WrongLength();
+
+        //Define total NFTs minted variable
+        uint256 total;
+
+        //Iterate through the addresses receiving NFTs
+        for (uint256 i = 0; i < receivers.length;) {
+            //Get the total NFTs Minted
+            total = totalSupply();
+
+            //Mint to address for the amount being minted
+            _mint(receivers[i], amounts[i]);
+
+            //Iterates through each tokenId being minted for this address
+            for (uint256 j = total + 1; j <= total + amounts[i]; ) {
+                
+
+                //Instantiate the stats for the NFT
+                bool success = stats.instantiateStats(j);
+
+                //Check that the token was initialized correctly
+                if (!success) revert StatsInitializationFailed(); //OI => On Initialisation
+
+                //Give the token Founding Raptor privilledges
+                isFoundingRaptor[j] = true;
+
+                //Remove safe mah wrapper
+                unchecked {
+                    j++;
+                }
+            }
+
+            //Remove safe math wrapper
+            unchecked {
+                i++;
+            }
+        }
+    }
+
     //-------------------------ADMIN FUNCTIONS -------------------------//
 
     //Automatically splits USD funds between designated wallets for the designated shares
-    function splitFunds(uint256 fundsToSplit) internal {
+    function splitFunds(uint256 fundsToSplit,uint256 usdArrIndex) private {
 
         //Calculate the total shares
-        uint16 totalShares = minterLib.totalShares(shares);
+        uint16 total = totalShares;
+
+        address[] memory _payees = payees;
+        uint16[] memory _shares = shares;
+
+        address usd = allowedUSDTokens[usdArrIndex];
+
+        if(usd == address(0)) revert NullAddress();
 
         //Building interface of usd
         IERC20 usdToken = IERC20(usd);
 
         //Iterate through the shares array
-        for (uint8 i = 0; i < shares.length; ) {
+        for (uint256 i = 0; i < _shares.length; ) {
 
             //send the split funds to each payee & check that the transfer was successful
             if(
-                usdToken.transfer(
-                    payees[i],
-                    (fundsToSplit * shares[i]) / totalShares
+                !usdToken.transfer(
+                    _payees[i],
+                    (fundsToSplit * _shares[i]) / total
                 )
             ) revert FailedTransfer(); 
 
@@ -272,87 +319,8 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
         }
     }
 
-    //Function name says it all
-    function convertAndSplitFunds(uint256 matic, uint256 usdValue) internal {
-        
-        //Build the path going from Matic to USD
-        address[] memory path;
-        path[0] = wmatic;
-        path[1] = usd;
-
-
-
-        //Exchange Matic for USD & send to this contract
-        exchange.swapExactETHForTokens{value: matic}(
-            0,
-            path,
-            address(this),
-            (block.timestamp + 1200)
-        );
-
-        //Get the USD balance of this contract
-        uint256 usdBal = IERC20(usd).balanceOf(address(this));
-
-        if(usdBal == 0) revert NullAmount();
-
-        //Split the usd balance 
-        splitFunds(usdBal);
-    }
-
-    //This function allows a user to mint using Matic, this is then converted to USD 
-    function mintWithMatic(uint8 amount) external payable {
-        //Get the total supply of tokens currently minted
-        uint256 total = totalSupply();
-
-        //Check that the total minted + requested mint amount does not exceed the total limti of mintable tokens
-        if(total + amount > totalLimit) revert TotalLimit(); 
-
-        //Check that the requested mint amount is less than 10
-        if (amount > 10) revert MintAmount(); 
-
-        //If the caller is not the admin address
-        if (_msgSender() != admin) {
-
-            //Get the USD value of the matic sent
-            uint256 usdValue = toUSD(msg.value);
-
-            //Check that the value sent is equal to the full USD price equivelant in matic
-            if (usdValue < getPrice(amount)) revert WrongValue(); 
-
-            //If the amount minted crosses 1000 mints then double the price
-            if (minterLib.crossesThreshold(amount, total)) {
-                currentPrice = currentPrice * 2;
-            }
-
-            //Send the funds to be split
-            convertAndSplitFunds(msg.value,usdValue);
-        }
-
-        //Mint the tokens to the _msgSender()
-        _mint(_msgSender(), amount);
-
-        //iterate through the amount
-        for (uint8 i = 0; i < amount; ) {
-            //Call the stats contract to instantiate the raptors stats passing through the token ID & this address as the minter address
-            bool success = stats.instantiateStats(uint16(total + i + 1));
-
-            //Check that the initialisation was successful
-            if (!success) revert StatsInitializationFailed(); 
-
-            unchecked {
-                i++;
-            }
-        }
-
-        //When all tokens have been minted
-        if (total == totalLimit) {
-            //Request a random number specifying that we want a limit of 200k gas limit used on callback
-            requestRandomWords(1, 200000);
-        }
-    }
-
     //This function charges in USD directly
-    function mintWithUSD(uint8 amount) external {
+    function mintWithUSD(uint256 amount,uint256 usdArrIndex) external {
         //Get the total supply of tokens currently minted
         uint256 total = totalSupply();
 
@@ -362,11 +330,15 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
         //Check that the requested mint amount is less than 10
         if(amount > 10 || amount == 0) revert MintAmount(); 
 
+        address usd = allowedUSDTokens[usdArrIndex];
+
+        if(usd == address(0)) revert NullAddress();
+
         //Build the interface
         IERC20 usdToken = IERC20(usd);
 
         //If the caller is not the admin address
-        if (_msgSender() != admin) {
+        if (_msgSender() != owner()) {
 
             uint256 usdTotal = usdToken.allowance(_msgSender(),address(this));
 
@@ -377,23 +349,23 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
 
             //If the amount minted crosses 1000 mints then double the price
             if (minterLib.crossesThreshold(amount, total)) {
-                currentPrice = currentPrice * 2;
+                currentPrice += (currentPrice / 4) ;
             }
 
             //Tranfering the USD from the callers wallet to this contract & checking that the transfer was successful
-            if (!usdToken.transferFrom(_msgSender(), address(this), usdTotal)) revert FailedTransfer();//TH => Tranfer Here
+            if (!usdToken.transferFrom(_msgSender(), address(this), usdTotal)) revert FailedTransfer();//TH => Transfer Here
 
             //Send the funds to be split
-            splitFunds(usdToken.balanceOf(address(this)));
+            splitFunds(usdToken.balanceOf(address(this)),usdArrIndex);
         }
 
         //Mint the tokens to the _msgSender()
         _mint(_msgSender(), amount);
 
         //iterate through the amount
-        for (uint8 i = 1; i <= amount; ) {
+        for (uint256 i = total + 1; i <= total + amount; ) {
             //Call the stats contract to instantiate the raptors stats passing through the token ID & this address as the minter address
-            bool success = stats.instantiateStats(uint16(total + i));
+            bool success = stats.instantiateStats(uint16(i));
 
             //Check that the initialisation was successful
             if (!success) revert StatsInitializationFailed();
@@ -418,63 +390,16 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
         override
     {
         //Calculate the tokenID that wins the porsche
-        uint256 id = (randomWords[0] % 10000) + 1;
+        uint256 id = (randomWords[0] % totalLimit) + 1;
 
         //Get the owner of that token
         address owner = ownerOf(id);
 
         //Emit an event declaring the winner
-        emit PorscheWinner(owner);
+        emit Winner(owner);
     }
 
-    //This function is only callable by the admin
-    function reward(address[] memory receivers, uint8[] memory amounts)
-        internal
-    {
-        //Check that the arrays are the same length
-        if (receivers.length != amounts.length) revert WrongLength();
 
-        //Check that the arrays length does not equal zero
-        if (receivers.length == 0) revert WrongLength();
-
-        //Define total NFTs minted variable
-        uint256 total;
-
-        //Iterate through the addresses receiving NFTs
-        for (uint8 i = 0; i < receivers.length;) {
-            //Get the total NFTs Minted
-            total = totalSupply();
-
-            //Mint to address for the amount being minted
-            _mint(receivers[i], amounts[i]);
-
-            //Iterates through each tokenId being minted for this address
-            for (uint8 j = 1; j <= amounts[i]; ) {
-                
-                //Calculate the tokenId on each iteraton
-                uint16 token = uint16(total + j);
-
-                //Instantiate the stats for the NFT
-                bool success = stats.instantiateStats(token);
-
-                //Check that the token was initialized correctly
-                if (!success) revert StatsInitializationFailed(); //OI => On Initialisation
-
-                //Give the token Founding Raptor privilledges
-                isFoundingRaptor[token] = true;
-
-                //Remove safe mah wrapper
-                unchecked {
-                    j++;
-                }
-            }
-
-            //Remove safe math wrapper
-            unchecked {
-                i++;
-            }
-        }
-    }
 
     //This function allows the burning of tokenIDs
     //This is unlikely to be called by a user directly
@@ -491,12 +416,12 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
     //--------------INFO Gathering ---------------------//
 
     //Calls the minter library to calculate the price
-    function getPrice(uint8 amount) public view returns (uint256 total) {
+    function getPrice(uint256 amount) public view returns (uint256 total) {
         return minterLib.getPrice(amount, currentPrice, uint16(totalSupply()));
     }
 
     //Getter for isFoundingRaptor maping
-    function isFoundingRaptorCheck(uint16 tokenId)
+    function isFoundingRaptorCheck(uint256 tokenId)
         external
         view
         returns (bool)
@@ -504,25 +429,8 @@ contract MainMinter is ERC721AQueryable, ReentrancyGuard, RNG {
         return isFoundingRaptor[tokenId];
     }
 
-    //Gets the USD value of a matic amount
-    function toUSD(uint256 amount) internal view returns (uint256) {
-
-        //Build the path
-        address[] memory path;
-        path[0] = wmatic;
-        path[1] = usd;
-
-        //Call the get amount out function on the uniswap router
-        uint[] memory amounts = exchange.getAmountsOut(amount, path);
-
-        //Return the second index in the array
-        return amounts[1];
-    }
 
     //--------------INFO Gathering ---------------------//
-
-    //This function is here so that the contract can receive matic 
-    receive() external payable {}
 
     //This function is here for security reasons
     fallback() external {}

@@ -185,16 +185,20 @@ contract RaptorCoinStaking {
 
         if(details.stepStakedOn == 0) revert NotStaking();
 
-        ICoin(raptorCoin).mint(details.amountStaked,caller);
+        uint256 amount = details.amountStaked;
+
+        ICoin(raptorCoin).mint(amount,caller);
 
         delete details.amountStaked;
         delete details.stepStakedOn;
 
-        _update(0,0);
+        _update(0,amount);
     }
 
     function getDueReward(address query) public view returns(uint256) {
-        StakingInfo storage details = stakeInfo[query];
+        StakingInfo memory details = stakeInfo[query];
+
+        if(details.stepStakedOn == 0 || details.stepStakedOn == stepID) return 0;
 
         uint256 total = 0;
 
@@ -224,7 +228,11 @@ contract RaptorCoinStaking {
         return stepInfo[step];
     }
 
-    function _update(uint256 amountStaked, uint256 amountUnstaked) internal {
+    function getStakerDetails(address query) external view returns(StakingInfo memory){
+        return stakeInfo[query];
+    }
+
+    function _update(uint256 amountStaked, uint256 amountUnstaked) private {
 
         StepInfo memory lastStep = stepInfo[stepID];
         StepInfo memory nextStep = stepInfo[++stepID];
@@ -254,8 +262,6 @@ contract RaptorCoinStaking {
             nextStep.rewardPerSecond = newTreasury / 100000;
             nextStep.timeStarted = block.timestamp;
             nextStep.totalStaked = lastStep.totalStaked + amountStaked;
-
-
         }
         //Claim
         else if(amountStaked == 0 && amountUnstaked == 0){

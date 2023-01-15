@@ -27,7 +27,30 @@ contract Multisig is Context{
     IERC20 private token;
 
     constructor(address[] memory _signers, address _token){
+
+        require(_signers.length != 0, "ERR:NA");
+
+        for(uint i = 0 ; i < _signers.length;){
+
+            require(_signers[i] != address(0),"ERR:ZA");
+
+            unchecked{
+                i++;
+            }
+        }
+
+        require(_token != address(0),"ERR:ZA");
+
         signers = _signers;
+
+        for(uint i = 0 ; i < _signers.length;){
+
+            isSigner[_signers[i]] = true;
+
+            unchecked{
+                i++;
+            }
+        }
 
         proposer = _msgSender();
 
@@ -63,14 +86,36 @@ contract Multisig is Context{
             if(haveSigned.length * 100 / signers.length >= 51){
                 token.approve(proposedTransactionAddress, proposedTransactionAmount);
                 ITransaction(proposedTransactionAddress).execute(proposedTransactionAmount);
+                delete proposedTransactionAddress;
+                delete proposedTransactionAmount;
+                for(uint i = 0; i < haveSigned.length;){
+
+                    delete hasSigned[haveSigned[i]];
+
+                    unchecked{
+                        i++;
+                    }
+                }
+
+                delete haveSigned;
             }
         }else{ 
             delete proposedTransactionAddress;
             delete proposedTransactionAmount;
+            for(uint i = 0; i < haveSigned.length;){
+
+                    delete hasSigned[haveSigned[i]];
+
+                    unchecked{
+                        i++;
+                    }
+                }
+
+                delete haveSigned;
         }
     }
 
-    function removeFromArray(address[] storage arr, address remove) internal {
+    function removeFromArray(address[] storage arr, address remove) private {
         for(uint8 i = 0; i < arr.length;){
 
             if(arr[i] == remove){

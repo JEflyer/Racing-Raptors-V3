@@ -18,6 +18,12 @@ import "@openzeppelin/contracts/utils/Context.sol";
 
 contract Stats is Context {
 
+    error NullAddress();
+    error NotAdmin();
+    error NotGame();
+    error NotMinter();
+    error AlreadyAuthorised();
+
     //minter address => whether or not it has been added to this contract
     mapping(address => bool) private minters;
 
@@ -31,7 +37,7 @@ contract Stats is Context {
     // 3 ...    ...
     // 4 ...    ...
     //MinterAddress => TokenId => RaptorStats
-    mapping(address => mapping(uint16 => RaptorStats)) private tokenStats;
+    mapping(address => mapping(uint256 => RaptorStats)) private tokenStats;
 
     //Stores the address of the current admin of this contract
     address private admin;
@@ -41,30 +47,34 @@ contract Stats is Context {
 
     constructor(address _game) {
 
+        if(_game == address(0)) revert NullAddress();
+
         //Build the game interface
         game = _game;
     }
 
     //This modifier checks that the caller is the admin of this contract
     modifier onlyAdmin {
-        require(_msgSender() == admin, "ERR:NA");//NA => Not Admin
+        if(_msgSender() != admin) revert NotAdmin();//NA => Not Admin
         _;
     }
 
     //This modifier checks that the caller is the set game contract
     modifier onlyGame {
-        require(_msgSender() == game, "ERR:NG");//NG => Not Game
+        if(_msgSender() != game) revert NotGame();//NG => Not Game
         _;
     }
 
     
-    function instantiateStats(uint16 tokenId) external returns(bool){
+    function instantiateStats(uint256 tokenId) external returns(bool){
+
+        address caller = _msgSender();
 
         //Check that the caller is an approved minter
-        require(minters[_msgSender()], "ERR:NA");//NA => Not Approved
+        if (!minters[caller]) revert NotMinter();//NA => Not Approved
 
         //Build the stats array for the tokenID & minter 
-        tokenStats[_msgSender()][tokenId] = RaptorStats({
+        tokenStats[caller][tokenId] = RaptorStats({
             speed: 1,
             strength: 1,
             fightsWon: 0,
@@ -84,7 +94,9 @@ contract Stats is Context {
     function addMinter(address _minter) external onlyAdmin {
 
         //Check that the address is not a zero address
-        require(_minter != address(0), "ERR:ZA");//ZA => Zero Address
+        if(_minter == address(0)) revert NullAddress();//ZA => Zero Address
+
+        if(minters[_minter]) revert AlreadyAuthorised();
 
         //Add the minter address to the minter array
         minterArray.push(_minter);
@@ -97,99 +109,106 @@ contract Stats is Context {
     function setAdmin(address _new) external onlyAdmin {
 
         //Check that the address is not a zero address
-        require(_new != address(0),"ERR:ZA");//Za => Zero Address
+        if(_new == address(0)) revert NullAddress();//Za => Zero Address
 
         //Assign the new admin to storage
         admin = _new;
+    }
+
+    //This function can only be called by the admin
+    function relinquishControl() external onlyAdmin {
+        delete admin;
     }
 
     //This function can only be called by the admin contract
     function setGame(address _game) external onlyAdmin {
         
         //Check that the address is not a zero address
-        require(_game != address(0), "ERR:ZA");//Za => Zero Address
+        if(_game == address(0)) revert NullAddress();//Za => Zero Address
 
         //Assign the new game contract to storage
         game = _game;
     }
 
     //For a minterIndex & tokenId return the Raptor Stats struct
-    function getStats(uint8 index, uint16 tokenId) external view returns(RaptorStats memory){
+    function getStats(uint256 index, uint256 tokenId) external view returns(RaptorStats memory){
         return tokenStats[minterArray[index]][tokenId];
     }
 
     //For a minterIndex & tokenId return the raptors speed
-    function getSpeed(uint8 index, uint16 tokenId) external view returns(uint64){
+    function getSpeed(uint256 index, uint256 tokenId) external view returns(uint64){
         return tokenStats[minterArray[index]][tokenId].speed;
     }
 
     //For a minterIndex & tokenId return the raptors strength
-    function getStrength(uint8 index, uint16 tokenId) external view returns(uint64){
+    function getStrength(uint256 index, uint256 tokenId) external view returns(uint64){
         return tokenStats[minterArray[index]][tokenId].strength;
     }
 
     //For a minterIndex & tokenId return the raptors cooldown time
     //A raptor will only be on cooldown if the raptor is injured
-    function getCooldownTime(uint8 index, uint16 tokenId) external view returns(uint64){
+    function getCooldownTime(uint256 index, uint256 tokenId) external view returns(uint64){
         return tokenStats[minterArray[index]][tokenId].cooldownTime;
     }
 
+    //Increase races participated in
+
     //For a minterIndex & tokenId increase the raptors speed by increaseAmount
-    function increaseSpeed(uint8 index, uint16 tokenId, uint64 increaseAmount) external onlyGame returns(bool){
+    function increaseSpeed(uint256 index, uint256 tokenId, uint64 increaseAmount) external onlyGame returns(bool){
         tokenStats[minterArray[index]][tokenId].speed += increaseAmount;
         return true;
     }
 
     //For a minterIndex & tokenId increase the raptors strength by increaseAmount
-    function increaseStrength(uint8 index, uint16 tokenId, uint64 increaseAmount) external onlyGame returns(bool){
+    function increaseStrength(uint256 index, uint256 tokenId, uint64 increaseAmount) external onlyGame returns(bool){
         tokenStats[minterArray[index]][tokenId].strength += increaseAmount;
         return true;
     }
 
     //For a minterIndex & tokenId increase the raptors fightsWon stat by 1
-    function increaseFightsWon(uint8 index, uint16 tokenId) external onlyGame returns(bool){
+    function increaseFightsWon(uint256 index, uint256 tokenId) external onlyGame returns(bool){
         tokenStats[minterArray[index]][tokenId].fightsWon++;
         return true;
     }
 
     //For a minterIndex & tokenId increase the raptors fightsLost stat by 1
-    function increaseFightsLost(uint8 index, uint16 tokenId) external onlyGame returns(bool){
+    function increaseFightsLost(uint256 index, uint256 tokenId) external onlyGame returns(bool){
         tokenStats[minterArray[index]][tokenId].fightsLost++;
         return true;
     }
 
     //For a minterIndex & tokenId increase the raptors QPRacesWon stat by 1
-    function increaseQPRacesWon(uint8 index, uint16 tokenId) external onlyGame returns(bool){
+    function increaseQPRacesWon(uint256 index, uint256 tokenId) external onlyGame returns(bool){
         tokenStats[minterArray[index]][tokenId].quickPlayRacesWon++;
         return true;
     }
 
     //For a minterIndex & tokenId increase the raptors CompRacesWon stat by 1
-    function increaseCompRacesWon(uint8 index, uint16 tokenId) external onlyGame returns(bool){
+    function increaseCompRacesWon(uint256 index, uint256 tokenId) external onlyGame returns(bool){
         tokenStats[minterArray[index]][tokenId].compRacesWon++;
         return true;
     } 
 
     //For a minterIndex & tokenId increase the raptors DeathRacesWon stat by 1
-    function increaseDRWon(uint8 index, uint16 tokenId) external onlyGame returns(bool){
+    function increaseDRWon(uint256 index, uint256 tokenId) external onlyGame returns(bool){
         tokenStats[minterArray[index]][tokenId].deathRacesWon++;
         return true;
     }
 
     //For a minterIndex & tokenId increase the raptors DeathRacesSurvived stat by 1
-    function increaseDRSurvived(uint8 index, uint16 tokenId) external onlyGame returns(bool){
+    function increaseDRSurvived(uint256 index, uint256 tokenId) external onlyGame returns(bool){
         tokenStats[minterArray[index]][tokenId].deathRacesSurvived++;
         return true;
     }
 
 
-    function increaseTop3Finishes(uint8 index, uint16 tokenId) external onlyGame returns(bool){
+    function increaseTop3Finishes(uint256 index, uint256 tokenId) external onlyGame returns(bool){
         tokenStats[minterArray[index]][tokenId].totalRacesTop3Finish++;
         return true;
     }
 
     //For a minterIndex & tokenId increase the raptors cooldownTime to a period of time from now
-    function increaseCooldownTime(uint8 index, uint16 tokenId) external onlyGame returns(bool){
+    function increaseCooldownTime(uint256 index, uint256 tokenId) external onlyGame returns(bool){
 
         //minterArray[0] is the mainMinter
         if(index == 0){
@@ -210,14 +229,14 @@ contract Stats is Context {
     }
 
     //Calls the minter contract to burn a given token Id
-    function burn(uint8 minterIndex, uint16 tokenId) external onlyGame returns(bool){
-        IBurn(minterArray[minterIndex]).burn(uint256(tokenId));//OB => On Burn
+    function burn(uint8 minterIndex, uint256 tokenId) external onlyGame returns(bool){
+        IBurn(minterArray[minterIndex]).burnByStats(tokenId);//OB => On Burn
 
         return true;
     }
 
     //Checks to see if an address owns the token being queried
-    function owns(address _query, uint8 index, uint16 tokenId) external view returns(bool){
+    function owns(address _query, uint256 index, uint256 tokenId) external view returns(bool){
 
         //Find the owner address for the given minter index & tokenId 
         address owner  = IERC721(minterArray[index]).ownerOf(tokenId);
@@ -227,17 +246,17 @@ contract Stats is Context {
     }
 
     //Finds the owner of a token for a given minter contract
-    function ownerOf(uint8 index, uint16 tokenId)  external view returns(address){
+    function ownerOf(uint256 index, uint256 tokenId)  external view returns(address){
         return IERC721(minterArray[index]).ownerOf(tokenId);
     }
 
-    // Checks to see that the this contraact does have approval to burn it
-    function checkApproval(uint8 index, uint16 tokenId) external view returns(bool){
-        return IERC721(minterArray[index]).getApproved(tokenId) == address(this) ? true : false;
-    }
+    // // Checks to see that the this contraact does have approval to burn it
+    // function checkApproval(uint256 index, uint256 tokenId) external view returns(bool){
+    //     return IERC721(minterArray[index]).getApproved(tokenId) == address(this) ? true : false;
+    // }
 
-     function checkMinterIndex(uint8 minterIndex) external view returns(address){
+    function checkMinterIndex(uint8 minterIndex) external view returns(address){
         return minterIndex < minterArray.length ? minterArray[minterIndex] : address(0);
-     }
+    }
 }
 

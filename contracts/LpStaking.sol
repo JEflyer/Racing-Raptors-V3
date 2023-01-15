@@ -21,6 +21,7 @@ contract LpStaking {
     error LpApproval();
     error AlreadyStaking();
     error NotRate();
+    error NotAStaker();
 
     address private admin;
     address private usd;
@@ -30,9 +31,9 @@ contract LpStaking {
 
     uint256 private latestLpId;
     uint256 private lastTimeSharesUpdated;
-    uint256[] public activeRewards;
-
     uint256 private amountToDivide;
+    
+    uint256[] public activeRewards;
     
     struct StakeInfo {
         uint256 amountStaked;
@@ -98,6 +99,10 @@ contract LpStaking {
 
     function setAdmin(address _new) external onlyAdmin NotNullAddress(_new){
         admin = _new;
+    }
+
+    function relinquishControl() external onlyAdmin {
+        delete admin;
     }
 
     function setUSD(address _new) external onlyAdmin NotNullAddress(_new){
@@ -201,6 +206,8 @@ contract LpStaking {
 
         StakeInfo storage info = stakeInfo[caller][_rewardId];
 
+        if(info.amountStaked == 0) revert NotAStaker();
+
         uint256 reward = getDueReward(caller,_rewardId) ;
 
         IUniswapV2Pair pair = IUniswapV2Pair(pairs[_rewardId]);
@@ -222,6 +229,8 @@ contract LpStaking {
 
         StakeInfo storage info = stakeInfo[caller][_rewardId];
 
+        if(info.amountStaked == 0) revert NotAStaker();
+
         IUniswapV2Pair pair = IUniswapV2Pair(pairs[_rewardId]);
         pair.transfer(caller,info.amountStaked);
 
@@ -234,6 +243,8 @@ contract LpStaking {
     function getDueReward(address _query, uint256 _rewardId) public view returns(uint256){
 
         StakeInfo storage info = stakeInfo[_query][_rewardId];
+
+        if(info.amountStaked == 0) return 0;
 
         uint256 total = 0;
 
@@ -256,14 +267,20 @@ contract LpStaking {
         
         step = stepInfo[_rewardId][lastStep];
 
-        total += ((amountStaked * step.rewardPerSecond) / step.totalLpStaked) * (block.timestamp - step.timeStarted);
+        if(step.timeEnded == 0){
+            total += ((amountStaked * step.rewardPerSecond) / step.totalLpStaked) * (block.timestamp - step.timeStarted);
+        }else{ 
+            total += ((amountStaked * step.rewardPerSecond) / step.totalLpStaked) * (step.timeEnded - step.timeStarted);
+        }
+
+        return total;
     }
 
-    function _update(uint256 _amountUnstaked, uint256 _amountStaked, uint256 _rewardID) internal {
+    function _update(uint256 _amountUnstaked, uint256 _amountStaked, uint256 _rewardID) private {
         
         uint256 id = stepIDs[_rewardID];
-        StepInfo memory lastStep = stepInfo[_rewardID][id];
-        StepInfo memory nextStep = stepInfo[_rewardID][++id];
+        StepInfo storage lastStep = stepInfo[_rewardID][id];
+        StepInfo storage nextStep = stepInfo[_rewardID][++id];
 
         uint256 rewardThisStep = lastStep.rewardPerSecond * (block.timestamp - lastStep.timeStarted);
 
@@ -274,12 +291,14 @@ contract LpStaking {
         nextStep.timeStarted = block.timestamp;
 
         if(_amountStaked > 0){
-            nextStep.totalLpStaked += _amountStaked;
+            nextStep.totalLpStaked = lastStep.totalLpStaked + _amountStaked;
         } else if(_amountUnstaked > 0){
-            nextStep.totalLpStaked -= _amountUnstaked;
+            nextStep.totalLpStaked = lastStep.totalLpStaked - _amountUnstaked;
         }
 
         IRate(rate).acceptUpdateFromLPS(getRaptorCoinBalance());
+
+        stepIDs[_rewardID] = id;
     }
 
     function getRaptorCoinBalance() public view returns(uint256){
@@ -328,7 +347,7 @@ contract LpStaking {
         return true;
     }
 
-    function getShares(uint256[] memory ids) internal view returns(uint256[] memory arr, uint256 totalShares){
+    function getShares(uint256[] memory ids) private view returns(uint256[] memory arr, uint256 totalShares){
         uint256 reserve = 0;
         IUniswapV2Pair pair;
         for(uint256 i = 0; i < ids.length;){

@@ -1,15 +1,17 @@
 //SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
-//Import the interface for the stats contract
-import "./interfaces/IStats.sol";
+//Imported the ILPDepositor interface depositing USD
+import "./interfaces/ILpDepositor.sol";
 
 //Imported the context library for safe usage of msg.sender
 import "@openzeppelin/contracts/utils/Context.sol";
 
 //Import the interface for ERC20
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/ICoin.sol";
+
+//Import the interface for the stats contract
+import "./interfaces/IStats.sol";
 
 //Import the interface for ERC721A
 import "./ERC721A/IERC721A.sol";
@@ -18,6 +20,8 @@ contract StrengthStaking is Context {
 
     error NotAuthorised();
     error IncorrectMinter();
+    error AmountApproved();
+    error NullAddress();
 
 
     struct StepDetails {
@@ -56,18 +60,39 @@ contract StrengthStaking is Context {
 
     address private rate;
 
+    address private usd;
+
+    ILpDepositor private lpDepositor;
+
     //Stores an instance of an ERC20 interface
     ICoin private token;
 
     //Stores instances of the ERC721A contracts
-    address[] private minters;
+    IERC721A[] private minters;
 
     //Stores an instance of the Stats interface
     IStats private stats;
 
     constructor(
-        address[] memory _minters, address _token, address _stats, address _rate
+        IERC721A[] memory _minters, address _token, address _stats, address _rate, address _usd, address _lpDepositor
     ){
+        for(uint256 i = 0; i < _minters.length;){
+
+            if(address(_minters[i]) == address(0)) revert NullAddress();
+
+            unchecked{
+                i++;
+            }
+        }
+
+        if(
+            _token == address(0) ||
+            _stats == address(0) ||
+            _rate == address(0) ||
+            _usd == address(0) ||
+            _lpDepositor == address(0)
+        ) revert NullAddress();
+
         admin = _msgSender();
 
         minters = _minters;
@@ -78,13 +103,17 @@ contract StrengthStaking is Context {
 
         rate = _rate;
 
+        lpDepositor = ILpDepositor(_lpDepositor);
+
         stepDetails[0].treasury = 100000 * 10 ** 18;
+
+        usd = _usd;
         
     }
 
     //This function is called everytime someone stakes or unstakes a NFT
     //The purpose is to keep a track of what blocks the total strength is for reward calculation
-    function updateStep(uint256 totalStrength) internal {
+    function updateStep(uint256 totalStrength) private {
 
         //Perform One SLOAD function
         uint256 step = stepId;
@@ -107,29 +136,9 @@ contract StrengthStaking is Context {
         nextStep.rewardPerSecond = nextStep.treasury / 100000;
 
         nextStep.totalStrength = totalStrength;
-
-        stepId = step;
-
-        // //Store the final block for the last step
-        // stepDetails[step].timeEnded = currentTime - 1;
-        
-        // //Increment the step before using & Assign new details
-        // stepDetails[++step] = StepDetails({
-        //     treasury: ,
-        //     totalStrength: totalStrength,
-        //     totalRewardThisStep: 0,
-        //     rewardPerSecond: ,
-        //     timeStarted: currentTime,
-        //     timeEnded: block.timestamp
-        // });
-
-        // //Assign the new stepId to storage
-        // stepId = step;
     }
 
     function stake(uint8 minterIndex, uint16 tokenId) external {
-        //Check that minterIndex is less than 2
-        require(minterIndex < 2, "ERR:MI");//MI => Minter Index
 
         //Get the address of the caller
         address caller = _msgSender();
@@ -144,12 +153,12 @@ contract StrengthStaking is Context {
             if(minterCheck == address(0)){
                 revert IncorrectMinter();
             }else {
-                minters.push(minterCheck);
+                minters.push(IERC721A(minterCheck));
                 minter = IERC721A(minterCheck);
             }
 
         }else {
-            minter = IERC721A(minters[minterIndex]);
+            minter = minters[minterIndex];
         }
 
         //Check that the caller owns the token for minter index
@@ -157,6 +166,15 @@ contract StrengthStaking is Context {
         
         //Check that the caller has given this contract approval over the token being staked
         require(minter.getApproved(tokenId) == address(this), "ERR:NA");//NA => Not Approved
+
+
+        uint256 amountApproved = IERC20(usd).allowance(caller,address(this));
+
+        if(amountApproved < 1000000) revert AmountApproved();
+
+        IERC20(usd).transferFrom(caller,address(lpDepositor),1000000);
+
+        if(lpDepositor.check()) lpDepositor.update();
 
         //Retreive the number of death races this token has survived from the stat contract 
         IStats.RaptorStats memory _stats = stats.getStats(minterIndex, tokenId);
@@ -166,7 +184,7 @@ contract StrengthStaking is Context {
         //Move the NFT to this contract
         minter.transferFrom(caller, address(this), tokenId);//OT => On Transfer
 
-        uint256 step = stepId+1;
+        uint256 step = ++stepId;
 
         //Update stake details for this token & minter
         stakeDetails[minterIndex][tokenId] = StakeDetails({
@@ -177,7 +195,7 @@ contract StrengthStaking is Context {
         }); 
 
         //Update the next step with the new total strength
-        updateStep(stepDetails[stepId].totalStrength + strength);
+        updateStep(stepDetails[step - 1].totalStrength + strength);
 
         //Pull user details
         UserData storage data = userData[caller];
@@ -190,8 +208,6 @@ contract StrengthStaking is Context {
     }
 
     function unstake(uint8 minterIndex, uint16 tokenId) external {
-        //Check that minterIndex is less than 2
-        require(minterIndex < 2, "ERR:MI");//MI => Minter Index
 
         //Get the address of the caller
         address caller = _msgSender();
@@ -201,17 +217,17 @@ contract StrengthStaking is Context {
 
         if( minterIndex > minters.length -1) {
             //Check on the stats contract if the minter index exists, returns with address if true
-            address minterCheck = stats.checkMinterIndex(minterIndex);
+            // address minterCheck = stats.checkMinterIndex(minterIndex);
             
-            if(minterCheck == address(0)){
+            // if(minterCheck == address(0)){
                 revert IncorrectMinter();
-            }else {
-                minters.push(minterCheck);
-                minter = IERC721A(minterCheck);
-            }
+            // }else {
+            //     minters.push(IERC721A(minterCheck));
+            //     minter = IERC721A(minterCheck);
+            // }
 
         }else {
-            minter = IERC721A(minters[minterIndex]);
+            minter = minters[minterIndex];
         }
 
         //Check that the caller owns the token for minter index
@@ -290,27 +306,8 @@ contract StrengthStaking is Context {
         //Emit Event
     }
 
-    // function resetSteps(address addr) internal {
-    //     //Pull user details
-    //     UserData storage data = userData[addr];
 
-    //     uint8[] storage minterIndexes = data.minterIndexes; 
-    //     uint16[] storage tokenIds = data.tokenIDs;
-
-    //     uint256 currentStep = stepId + 1;
-
-    //     for(uint16 i = 0; i< tokenIds.length;) {
-
-    //         stakeDetails[minterIndexes[i]][tokenIds[i]].stepLastClaimed = currentStep;
-
-    //         unchecked{
-    //             i++;
-    //         }
-    //     }
-    // }
-
-
-    function getDueRewardForToken(uint8 minterIndex, uint16 tokenId) internal view returns(uint256){
+    function getDueRewardForToken(uint8 minterIndex, uint16 tokenId) public view returns(uint256){
 
         StakeDetails memory details = stakeDetails[minterIndex][tokenId];
 
@@ -333,7 +330,9 @@ contract StrengthStaking is Context {
 
         deetz = stepDetails[step + 1];
 
-        total += (details.strength * deetz.rewardPerSecond) / deetz.totalStrength * (block.timestamp - deetz.timeStarted);
+        total += ((details.strength * deetz.rewardPerSecond) / deetz.totalStrength) * (block.timestamp - deetz.timeStarted);
+
+        return total;
 
     }
 

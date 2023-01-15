@@ -12,6 +12,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import "./interfaces/ICoin.sol";
 import "./interfaces/IRate.sol";
+import "./interfaces/ILpDepositor.sol";
 
 //Import the interface for ERC721A
 import "./ERC721A/IERC721A.sol";
@@ -31,14 +32,16 @@ contract StaticStaking is Context{
     error FailedUpdate();
     error NothingOwed();
 
-    //Stores the address of the admin of this contract
-    address private admin;
-
     //Stores an instance of an ERC20 interface
     address private token;
 
     //Stores an instance of the rate contract for retrieving the share of burned tokens
     address private rate;
+    
+    //Stores the address of the USD token taken as a fee
+    address private usd;
+
+    ILpDepositor private depositor;
 
     //Stores instances of the ERC721A contracts
     address[] private minters;
@@ -47,12 +50,6 @@ contract StaticStaking is Context{
     IStats private stats;
 
     uint256 private numStaked;
-
-    //This is the fixed reward that users will be receive at a minimum per block
-    // uint256 private stakingRewardPerBlock;
-
-    // //Stores the number of death races a given token for minter has survived
-    // mapping(uint8 => mapping(uint16 => uint64)) private DRSurvivals;
 
     //This is data specific to the token 
     struct StakeData {
@@ -86,7 +83,7 @@ contract StaticStaking is Context{
 
     uint256 public stepID;
 
-    constructor(address[] memory _minters, address _token, address _stats, address _rate){
+    constructor(address[] memory _minters, address _token, address _stats, address _rate, address _usd, address _depositor){
 
         for(uint256 i = 0; i < _minters.length; ){
 
@@ -100,6 +97,8 @@ contract StaticStaking is Context{
         if(
             _token == address(0) ||
             _stats == address(0) || 
+            _usd == address(0) || 
+            _depositor == address(0) || 
             _rate == address(0)
         ) revert NullAddress();
 
@@ -107,6 +106,9 @@ contract StaticStaking is Context{
         //Build instance of an ERC20 interface
         token = _token;
 
+        usd = _usd;
+
+        depositor = ILpDepositor( _depositor);
 
         //Set the minters
         minters = _minters;
@@ -114,13 +116,10 @@ contract StaticStaking is Context{
         //Build an instance of the Stats contract interface
         stats = IStats(_stats);
 
-        //Set admin as the deployer
-        admin = msg.sender;
-
         rate = _rate;
 
         stepDetails[0].treasury = 100000 * 10 ** 18;
-        stepDetails[0].rewardPerSecond = 1 * 10 ** 18;
+        stepDetails[0].rewardPerSecond = 0;
         stepDetails[0].timeStepStarted = block.timestamp;
 
         numStaked = 0;
@@ -133,7 +132,9 @@ contract StaticStaking is Context{
         address caller = _msgSender();
 
         //Check that the user has approved this contract to spend 1 USD
+        uint256 amountApproved = IERC20(usd).allowance(caller,address(this));
 
+        if(amountApproved < 1000000) revert AmountApproved();
         
         //Define an instance of the minter
         IERC721A minter;
@@ -165,6 +166,10 @@ contract StaticStaking is Context{
         uint64 numSurvived = _stats.deathRacesSurvived;
         if (numSurvived == 0) revert NoDeathRacesSurvived();//NS => Not Stakable
 
+        IERC20(usd).transferFrom(caller,address(depositor),1000000);
+
+        if(depositor.check()) depositor.update();
+
         //Move the NFT to this contract
         minter.transferFrom(caller, address(this), tokenId);//OT => On Transfer
 
@@ -173,7 +178,7 @@ contract StaticStaking is Context{
             staker: caller,
             stepStakedOn: stepID+1,
             stepLastClaimed: stepID+1,
-            numOfDeathRacesSurvived: _stats.deathRacesSurvived
+            numOfDeathRacesSurvived: numSurvived
         });
 
         //Pull user details
@@ -186,10 +191,10 @@ contract StaticStaking is Context{
         numStaked += 1;
 
         //Update step details
-        _update(_stats.deathRacesSurvived,true);
+        _update(numSurvived,true);
     }
 
-    function _update(uint64 racesSurvived, bool adding) internal {
+    function _update(uint64 racesSurvived, bool adding) private {
         Step storage lastStep = stepDetails[stepID];
         Step storage nextStep = stepDetails[++stepID];
 
@@ -215,8 +220,7 @@ contract StaticStaking is Context{
             nextStep.totalDeathRacesSurvived = lastStep.totalDeathRacesSurvived - racesSurvived;
         }
 
-        //Anything else?
-        // if(!IRate(rate).acceptUpdateFromDRS(numStaked)) revert FailedUpdate();
+        if(!IRate(rate).acceptUpdateFromDRS(numStaked)) revert FailedUpdate();
 
     }
 
@@ -232,15 +236,16 @@ contract StaticStaking is Context{
         IERC721A minter;
 
         if( minterIndex > minters.length -1) {
-            //Check on the stats contract if the minter index exists, returns with address if true
-            address minterCheck = stats.checkMinterIndex(minterIndex);
+            // //Check on the stats contract if the minter index exists, returns with address if true
+            // address minterCheck = stats.checkMinterIndex(minterIndex);
             
-            if(minterCheck == address(0)){
-                revert IncorrectMinter();
-            }else {
-                minters.push(minterCheck);
-                minter = IERC721A(minterCheck);
-            }
+            // if(minterCheck == address(0)){
+            //     revert IncorrectMinter();
+            // }else {
+            //     minters.push(minterCheck);
+            //     minter = IERC721A(minterCheck);
+            // }
+            revert IncorrectMinter();
 
         }else {
             minter = IERC721A(minters[minterIndex]);
@@ -273,57 +278,35 @@ contract StaticStaking is Context{
         minter.transferFrom(address(this), caller, tokenId);
 
         //Remove the token from the user data  
+        UserData storage data = userData[caller];
+
+        if(data.tokenIDs.length == 1){
+            delete data.tokenIDs;
+            delete data.minterIndexes;
+        }else{
+            for(uint256 i = 0; i < data.tokenIDs.length;){
+
+                if(
+                    data.tokenIDs[i] == tokenId 
+                    &&
+                    data.minterIndexes[i] == minterIndex
+                ){
+                    data.tokenIDs[i] = data.tokenIDs[data.tokenIDs.length-1];
+                    data.minterIndexes[i] = data.minterIndexes[data.minterIndexes.length-1];
+                    data.minterIndexes.pop();
+                    data.tokenIDs.pop();
+                }
+
+                unchecked {
+                    i++;
+                }
+            }
+        }
 
 
     }
 
     function getRewardDueForRaptor(uint8 minterIndex, uint16 tokenID) public view returns(uint256) {
-
-        StakeData memory raptorDetails = stakeData[minterIndex][tokenID];
-
-        uint256 total = 0;
-
-        uint256 numOfDeathRacesSurvived = raptorDetails.numOfDeathRacesSurvived;
-
-        //We computat4e all completed steps & then the current step
-        for(uint256 i = raptorDetails.stepStakedOn; i < stepID; ){
-
-            total += (numOfDeathRacesSurvived * stepDetails[i].rewardGivenThisStep) / stepDetails[i].totalDeathRacesSurvived;
-
-            unchecked {
-                i++;
-            }
-        }
-
-        total += ((numOfDeathRacesSurvived * stepDetails[stepID].rewardPerSecond) / stepDetails[stepID].totalDeathRacesSurvived) * (block.timestamp - stepDetails[stepID].timeStepStarted);
-
-        return total;
-
-    } 
-
-    function claim(uint8 minterIndex, uint16 tokenId) external {
-
-        //Get the address of the caller
-        address caller = _msgSender();
-
-        if(caller != stakeData[minterIndex][tokenId].staker) revert NotOwnerOfToken();
-
-        //Calculate the reward 
-        uint256 reward = getDueReward(minterIndex,tokenId);
-
-        if(reward == 0) revert NothingOwed();
-
-        stakeData[minterIndex][tokenId].stepLastClaimed = stepID + 1;
-
-        //Mint the reward tokens to the caller
-        ICoin(token).mint(reward, caller);
-        
-        
-        _update(0,false);
-
-    }
-
-    function getDueReward(uint8 minterIndex, uint16 tokenId) public view returns(uint256){
 
         //Initialize the total
         uint256 total = 0;
@@ -333,10 +316,10 @@ contract StaticStaking is Context{
 
         uint256 step = details.stepLastClaimed == 0 ? details.stepStakedOn : details.stepLastClaimed;
 
+        if (step == 0) return 0;
+
         //We computate all completed steps minus the current step 
         for(uint256 j = step; j < stepID; ){
-
-            if (j == 0) continue;
 
             //Find the tokens share on this step
             total += (details.numOfDeathRacesSurvived * stepDetails[j].rewardGivenThisStep) / stepDetails[j].totalDeathRacesSurvived;
@@ -350,6 +333,33 @@ contract StaticStaking is Context{
         total += ((details.numOfDeathRacesSurvived * stepDetails[stepID].rewardPerSecond) / stepDetails[stepID].totalDeathRacesSurvived) * (block.timestamp - stepDetails[stepID].timeStepStarted);
 
         return total;
+
+    } 
+
+    function claim(uint8 minterIndex, uint16 tokenId) external {
+
+        //Get the address of the caller
+        address caller = _msgSender();
+
+        StakeData storage data = stakeData[minterIndex][tokenId]; 
+
+        if(caller != data.staker) revert NotOwnerOfToken();
+
+        if(data.stepStakedOn == 0) revert NotStaked();
+        if(data.stepStakedOn == stepID) revert StakedThisStep();
+
+        //Calculate the reward 
+        uint256 reward = getRewardDueForRaptor(minterIndex,tokenId);
+
+        if(reward == 0) revert NothingOwed();
+
+        data.stepLastClaimed = stepID + 1;
+
+        //Mint the reward tokens to the caller
+        ICoin(token).mint(reward, caller);
+        
+        _update(0,false);
+
     }
 
 

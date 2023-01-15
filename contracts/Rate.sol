@@ -11,10 +11,8 @@ contract Rate is KeeperCompatibleInterface{
     error NullAddress();
     error AlreadyInitialized();
     error NothingBurned();
-    error FailedUpdate0();
-    error FailedUpdate1();
-    error FailedUpdate2();
-    error FailedUpdate3();
+    error FailedUpdate(uint256 num);
+    error NotReady();
     
     address private initializer;
 
@@ -39,6 +37,8 @@ contract Rate is KeeperCompatibleInterface{
 
     uint256 private amountBurnedSinceLastCalculation;
 
+    bool private initialized;
+
     struct StepInfo {
         uint256 totalBurnedThisStep;
         uint256 DRS_RCV;
@@ -50,13 +50,12 @@ contract Rate is KeeperCompatibleInterface{
 
     mapping(uint256 => StepInfo) private stepDetails;
 
-    bool private initialized;
 
     constructor(){
         initializer = msg.sender;
     }
 
-    function initialize(address[4] calldata _minters, address[3] calldata _burners) external {
+    function initialize(address[4] calldata _minters, address[3] calldata _burners, address _vb) external {
         if(msg.sender != initializer) revert NotAuthorised();
         if(initialized) revert AlreadyInitialized();
         if(
@@ -66,11 +65,15 @@ contract Rate is KeeperCompatibleInterface{
             _minters[3] == address(0) ||
             _burners[0] == address(0) ||
             _burners[1] == address(0) ||
-            _burners[2] == address(0)         
+            _burners[2] == address(0) ||
+            _vb == address(0)         
         ) revert NullAddress();
 
         minters = _minters;
         burners = _burners;
+        viewerBetting = _vb;
+
+        initialized = true;
     }
 
     modifier isMinter(uint256 index){
@@ -147,6 +150,8 @@ contract Rate is KeeperCompatibleInterface{
 
         uint256 toShare = amountBurnedSinceLastCalculation * 90 / 100;
 
+        if(amountBurnedSinceLastCalculation < 100 * 10 ** 18) revert NotReady();
+
         if(toShare == 0){
             revert NothingBurned();
         }else {
@@ -156,7 +161,7 @@ contract Rate is KeeperCompatibleInterface{
             uint256 _latest_LPS_RCV = latest_LPS_RCV;
             uint256 _latest_RCS_RCV = latest_RCS_RCV;
 
-            nextStep.totalBurnedThisStep = toShare;
+            nextStep.totalBurnedThisStep = amountBurnedSinceLastCalculation - toShare;
             nextStep.DRS_RCV = _latest_DRS_RCV;
             nextStep.SS_RCV = _latest_SS_RCV;
             nextStep.LPS_RCV = _latest_LPS_RCV;
@@ -169,18 +174,21 @@ contract Rate is KeeperCompatibleInterface{
 
             address[4] memory _minters = minters;
 
-            // amountDue[_minters[0]] += (_latest_DRS_RCV * toShare) / totalRCV;
-            // amountDue[_minters[1]] += (_latest_SS_RCV * toShare) / totalRCV;
-            // amountDue[_minters[2]] += (_latest_LPS_RCV * toShare) / totalRCV;
-            // amountDue[_minters[3]] = (_latest_RCS_RCV * toShare) / totalRCV;
 
-            if(!IStake(_minters[0]).Update((_latest_DRS_RCV * toShare) / totalRCV)) revert FailedUpdate0();
-            if(!IStake(_minters[1]).Update((_latest_SS_RCV * toShare) / totalRCV)) revert FailedUpdate1();
-            if(!IStake(_minters[2]).Update((_latest_LPS_RCV * toShare) / totalRCV)) revert FailedUpdate2();
-            if(!IStake(_minters[3]).Update((_latest_RCS_RCV * toShare) / totalRCV)) revert FailedUpdate3();
+            if(!IStake(_minters[0]).Update((_latest_DRS_RCV * toShare) / totalRCV)) revert FailedUpdate(0);
+            if(!IStake(_minters[1]).Update((_latest_SS_RCV * toShare) / totalRCV)) revert FailedUpdate(1);
+            if(!IStake(_minters[2]).Update((_latest_LPS_RCV * toShare) / totalRCV)) revert FailedUpdate(2);
+            if(!IStake(_minters[3]).Update((_latest_RCS_RCV * toShare) / totalRCV)) revert FailedUpdate(3);
 
             currentStepID = id;
         }
     }
-    function checkUpkeep(bytes calldata checkData) external override returns (bool upkeepNeeded, bytes memory performData){}
+    
+    function checkUpkeep(bytes calldata checkData) external override returns (bool upkeepNeeded, bytes memory performData){
+        if(amountBurnedSinceLastCalculation > 100 * 10 ** 18) {
+            return (true,"");
+        }else {
+            return (false,"");
+        }
+    }
 }

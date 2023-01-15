@@ -12,15 +12,16 @@ import "./structs/Results.sol";
 
 contract ViewerBetting is Context{
 
+    error NullAddress();
+    error NotAdmin();
+    error NotGame();
+
     address private admin;
     address private game;
 
     IStats private stats;
 
-    //Same token different interefaces
-    //Should merge the 2 into 1 interface - TODO
-    IERC20 private token;
-    ICoin private token2;
+    ICoin private token;
 
     struct RaptorDetails {
         uint64 speed;
@@ -57,37 +58,48 @@ contract ViewerBetting is Context{
         mapping(address => BetterDetails) betterDetails;
     }
 
-    BetDetails private betDetails;
+    BetDetails public betDetails;
 
-    constructor(address _game){
+    constructor(address _game,address _stats){
+        if(_game == address(0)) revert NullAddress();
+        if(_stats == address(0)) revert NullAddress();
         game = _game;
+        stats = IStats(_stats);
         admin = _msgSender();
     }
 
     modifier onlyGame {
-        require(_msgSender() == game,"ERR:NG");//NG => Not Game
+        if(msg.sender != game) revert NotGame();
         _;
     }
 
     modifier onlyAdmin{
-        require(_msgSender() == admin, "ERR:NA");//NA => Not Admin
+        if(_msgSender() != admin) revert NotAdmin();
         _;
     }
     
     function setGame(address _game) external onlyAdmin {
+        if(_game == address(0)) revert NullAddress();
         game = _game;
     }
 
+    function setAdmin(address _new) external onlyAdmin {
+        if(_new == address(0)) revert NullAddress();
+        admin = _new;
+    } 
+
+    function relinquishControl() external onlyAdmin {
+        delete admin;
+    }
+
     function openBetting(uint16[] memory _raptors, uint8[] memory _minterIndexes) external onlyGame {
-        require(_raptors.length == 8, "ERR:WL");//WL => Wrong Length
 
         uint64[] memory speed;
 
-        uint8 i;
         uint8[] memory fastestSpeedIndexes; //speed from max to min
 
         //we want the array of indexes the highest speeds into a new array
-        for(;  i < _raptors.length-1;){
+        for(uint256 i = 0;  i < _raptors.length;){
 
             speed[i] = stats.getSpeed(_minterIndexes[i], _raptors[i]);
             fastestSpeedIndexes[i] = i;
@@ -96,7 +108,7 @@ contract ViewerBetting is Context{
             }
         }
 
-        for(i = 0; i<speed.length-1;){
+        for(uint256 i = 0; i<speed.length-1;){
             if(speed[i] < speed[i+1]){
                 uint64 temp = speed[i];
                 speed[i] = speed[i+1];
@@ -120,7 +132,7 @@ contract ViewerBetting is Context{
 
         BetDetails storage details = betDetails;
 
-        for(i = 0; i< speed.length;){
+        for(uint256 i = 0; i< speed.length;){
 
             details.sortedRaptors[i] = RaptorDetails({
                 speed: speed[fastestSpeedIndexes[i]],
@@ -141,12 +153,10 @@ contract ViewerBetting is Context{
 
         (address[] memory addresses, uint256[] memory amounts) = getPayouts(_results);
 
-        uint64 i;
-
         if(addresses.length != 0){
-            for(i = 0; i < addresses.length; ){
+            for(uint256 i = 0; i < addresses.length; ){
 
-                token2.mint(amounts[i],addresses[i]);
+                token.mint(amounts[i],addresses[i]);
 
                 unchecked{
                     i++;
@@ -154,7 +164,7 @@ contract ViewerBetting is Context{
             }
         }
 
-        for(i = 0; i < 8;){
+        for(uint256 i = 0; i < 8;){
 
             delete details.sortedRaptors[uint8(i)];
 
@@ -163,7 +173,7 @@ contract ViewerBetting is Context{
             }
         }
 
-        for(i = 0; i < details.betters.length;){
+        for(uint256 i = 0; i < details.betters.length;){
             delete details.betterDetails[details.betters[i]];
         }
 
@@ -200,7 +210,7 @@ contract ViewerBetting is Context{
     //winning to win bet for fastest raptor - 10% reward on top of your original bet
     //winning to win for second fastest raptor -  15% reward on top of your original bet
     //winning to win for third fastest raptor -  20% reward on top of your original bet
-    //winning to win for fourth fastest raptor & onwards -  not possible
+    //winning to win for fourth fastest raptor - 
 
 
     //winning top 3 bet for fastest raptor - 10% reward on top of your original bet
@@ -208,10 +218,10 @@ contract ViewerBetting is Context{
     //winning top 3 for third fastest raptor -  10% reward on top of your original bet
     //winning top 3 for fourth fastest raptor -  20% reward on top of your original bet
     //winning top 3 for fifth fastest raptor -  100% reward on top of your original bet
-    //winning top 3 for sixth fastest raptor & onwards -  not possible
+    //winning top 3 for sixth fastest raptor -  
 
-    function getPayouts(Results memory _results) internal view returns(address[] memory addresses, uint256[] memory payouts){
-        BetDetails storage details = betDetails;
+    function getPayouts(Results memory _results) private view returns(address[] memory addresses, uint256[] memory payouts){
+        BetDetails memory details = betDetails;
 
         for(uint64 i = 0; i<details.betters.length; ){
 
@@ -227,7 +237,7 @@ contract ViewerBetting is Context{
 
     }
 
-    function check (BetterDetails storage details,Results memory _results) internal view returns(uint256){
+    function check (BetterDetails memory details,Results memory _results) private view returns(uint256){
         if(uint(details.betType) == 0){// To Win
             if(
                 _results.top3IDs[0] == details.tokenId 
@@ -283,10 +293,10 @@ contract ViewerBetting is Context{
         return 0;    
     }
 
-    function getWinningMultiplier(uint16 tokenId, uint8 index) internal view returns(uint256){
-        BetDetails storage details = betDetails;
+    function getWinningMultiplier(uint16 tokenId, uint8 index) private view returns(uint256){
+        BetDetails memory details = betDetails;
 
-        for(uint8 i = 0 ; i < 5;){
+        for(uint256 i = 0 ; i < 8;){
 
             if(
                 details.sortedRaptors[i].tokenId == tokenId 
@@ -299,6 +309,16 @@ contract ViewerBetting is Context{
                     return 115;
                 }else if(i == 2){
                     return 120;
+                }else if(i == 3){
+                    return 135;
+                }else if(i == 4){
+                    return 150;
+                }else if(i == 5){
+                    return 170;
+                }else if(i == 6){
+                    return 185;
+                }else if(i == 7){
+                    return 200;
                 }
             }
 
@@ -311,10 +331,10 @@ contract ViewerBetting is Context{
 
     }
 
-    function getTop3WinningModifier(uint16 tokenID, uint8 index) internal view returns(uint256){
-        BetDetails storage details = betDetails;
+    function getTop3WinningModifier(uint16 tokenID, uint8 index) private view returns(uint256){
+        BetDetails memory details = betDetails;
 
-        for(uint8 i = 0 ; i < 5;){
+        for(uint8 i = 0 ; i < 8;){
 
             if(
                 details.sortedRaptors[i].tokenId == tokenID 
@@ -326,7 +346,13 @@ contract ViewerBetting is Context{
                 }else if(i == 3){
                     return 120;
                 }else if(i == 4){
-                    return 200;
+                    return 130;
+                }else if(i == 5){
+                    return 140;
+                }else if(i == 6){
+                    return 150;
+                }else if(i == 7){
+                    return 160;
                 }
             }
 
@@ -347,7 +373,7 @@ contract ViewerBetting is Context{
         uint256 approvedAmount = token.allowance(caller, address(this));
         require(approvedAmount >= _amount, "ERR:AA");//AA => Approved Amount
 
-        require(_minterIndex < 2, "ERR:WM"); //WM => Wrong Minter
+        require(_minterIndex < 3, "ERR:WM"); //WM => Wrong Minter
 
         bool raptorCheck;
 
@@ -370,7 +396,7 @@ contract ViewerBetting is Context{
 
         require(uint(_bet) <= 3, "ERR:BT");//BT => Bet Type
 
-        token2.BurnFrom(caller, _amount);
+        token.BurnFrom(caller, _amount);
 
         details.betterDetails[caller] = BetterDetails({
             tokenId: _raptor,

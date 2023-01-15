@@ -19,7 +19,7 @@ library minterLib {
         uint256 remainder = (_totalSupply + _amount) % 1000;
 
         //If the remainder is between 0 & 9 & that the remainder is less than amount return true else return false
-        if (remainder >= 0 && remainder < 10 && remainder < _amount) {
+        if (remainder < _amount) {
             return true;
         } else {
             return false;
@@ -55,7 +55,7 @@ library minterLib {
     //Checks to see if the amount + current minted amount crosses the a multiple of 1000
     //If so it gets the amounts on each side & calculates the price accordingly
     function getPrice(
-        uint8 _amount,
+        uint256 _amount,
         uint256 price,
         uint16 totalMintSupply
     ) internal pure returns (uint256 givenPrice) {
@@ -74,7 +74,7 @@ library minterLib {
             );
 
             //Calculate the fullprice
-            givenPrice = (price * amountBefore) + (price * 2 * amountAfter);
+            givenPrice = (price * amountBefore) + ((price + price / 5) * amountAfter);
         } else {
             //Calculate the full price
             givenPrice = price * _amount;
@@ -82,20 +82,20 @@ library minterLib {
     }
 
     //Calculates the sum of the shares array
-    function totalShares(uint16[] memory shares)
-        internal
-        pure
-        returns (uint16 result)
-    {
-        //Iterate through the array
-        for (uint8 i = 0; i < shares.length; ) {
-            //Add each element in the array to the result
-            result += shares[i];
+    // function totalShares(uint16[] memory shares)
+    //     internal
+    //     pure
+    //     returns (uint16 result)
+    // {
+    //     //Iterate through the array
+    //     for (uint8 i = 0; i < shares.length; ) {
+    //         //Add each element in the array to the result
+    //         result += shares[i];
 
-            //Remove the safe math wrapper to save gas as i will not be larger than 255
-            unchecked {
-                i++;
-            }
-        }
-    }
+    //         //Remove the safe math wrapper to save gas as i will not be larger than 255
+    //         unchecked {
+    //             i++;
+    //         }
+    //     }
+    // }
 }
