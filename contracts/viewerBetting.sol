@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/ICoin.sol";
 
 import "./interfaces/IStats.sol";
+import "./interfaces/IVerify.sol";
 
 import "./structs/Results.sol";
 
@@ -15,9 +16,11 @@ contract ViewerBetting is Context{
     error NullAddress();
     error NotAdmin();
     error NotGame();
+    error NotAuthorised();
 
     address private admin;
     address private game;
+    address private sigVerifier;
 
     IStats private stats;
 
@@ -60,12 +63,14 @@ contract ViewerBetting is Context{
 
     BetDetails public betDetails;
 
-    constructor(address _game,address _stats){
+    constructor(address _game,address _stats, address _sigVerifier){
         if(_game == address(0)) revert NullAddress();
+        if(_sigVerifier == address(0)) revert NullAddress();
         if(_stats == address(0)) revert NullAddress();
         game = _game;
         stats = IStats(_stats);
         admin = _msgSender();
+        sigVerifier = _sigVerifier;
     }
 
     modifier onlyGame {
@@ -364,7 +369,10 @@ contract ViewerBetting is Context{
         return 0;
     }
 
-    function bet(uint16 _raptor, uint8 _minterIndex, BetType _bet, uint256 _amount) external {
+    function bet(uint16 _raptor, uint8 _minterIndex, BetType _bet, uint256 _amount, uint8 v, bytes32 r, bytes32 s) external {
+
+        if(!IVerify(sigVerifier).verifySignature(v,r,s,msg.sender)) revert NotAuthorised();
+
         BetDetails storage details = betDetails;
         require(details.active, "ERR:NO");//NO => Not Open
 

@@ -13,6 +13,8 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 //import the Raptor Stats struct
 import "./structs/stats.sol";
 
+import "./interfaces/IBud.sol";
+
 //importing so msg.sender can be replaced with _msgSender() - this is more secure
 import "@openzeppelin/contracts/utils/Context.sol";
 
@@ -23,6 +25,8 @@ contract Stats is Context {
     error NotGame();
     error NotMinter();
     error AlreadyAuthorised();
+    error NotApprovedForAll();
+    error NoCooldown();
 
     //minter address => whether or not it has been added to this contract
     mapping(address => bool) private minters;
@@ -45,10 +49,15 @@ contract Stats is Context {
     //Stores the game interface
     address private game;
 
-    constructor(address _game) {
+
+    address private budMinter;
+
+    constructor(address _game, address _budMinter) {
 
         if(_game == address(0)) revert NullAddress();
+        if(_budMinter == address(0)) revert NullAddress();
 
+        budMinter = _budMinter;
         //Build the game interface
         game = _game;
     }
@@ -257,6 +266,20 @@ contract Stats is Context {
 
     function checkMinterIndex(uint8 minterIndex) external view returns(address){
         return minterIndex < minterArray.length ? minterArray[minterIndex] : address(0);
+    }
+
+    function TakeAHitOfTheBong(uint256 index, uint256 tokenID) external {
+        IBud bud = IBud(_budMinter);
+
+        if(!bud.isApprovedForAll(msg.sender, address(this))) revert NotApprovedForAll();
+
+        RaptorStats storage stats = tokenStats[minterArray[index]][tokenId];
+
+        if(stats.cooldownTime < block.timestamp) revert NoCooldown();
+
+        bud.burnFirstAvailable(msg.sender);
+
+        delete stats.cooldownTime;
     }
 }
 

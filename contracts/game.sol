@@ -3,6 +3,7 @@ pragma solidity 0.8.15;
 
 //import IStats interface
 import "./interfaces/IStats.sol";
+import "./interfaces/IVerify.sol";
 import "./interfaces/ICoin.sol";
 
 //using library for the majority of internal functions as to reduce gas units used in function calls
@@ -69,6 +70,8 @@ contract GameV3 is IERC721Receiver, Context, RNG {
     // & giving these away to the community to help bring exposure to upcoming projects
     address private communityWallet;
 
+    address private sigVerifier;
+
     //an array of 8 tokenIds used for keeping track of the current list of tokens in queue
     uint16[8] public currentRaptors;
 
@@ -119,6 +122,7 @@ contract GameV3 is IERC721Receiver, Context, RNG {
         address _raptorCoin,
         address _communityWallet,
         address _vrfCoordinator,
+        address _sigVarifier,
         uint64 _subscriptionId,
         bytes32 _keyHash,
         uint32 _distance,
@@ -133,6 +137,8 @@ contract GameV3 is IERC721Receiver, Context, RNG {
             _communityWallet == address(0)
             ||
             _vrfCoordinator == address(0)
+            ||
+            _sigVerifier == address(0)
         ) revert NullAddress();
 
         if(
@@ -167,11 +173,18 @@ contract GameV3 is IERC721Receiver, Context, RNG {
         DRFee = _fee * 25;
 
         raptorCoin = _raptorCoin;
+
+        sigVerifier = _sigVarifier;
     }
 
     //This modifier checks that a caller is the admin of the contract
     modifier onlyAdmin() {
         if(_msgSender() != admin) revert NotAdmin(); //NA => Not Admin
+        _;
+    }
+
+    modifier verifySignature(uint8 v, bytes32 r, bytes32 s){
+        if(!IVerify(sigVerifier).verifySignature(v,r,s,msg.sender)) revert NotAuthorised();
         _;
     }
 
@@ -293,8 +306,9 @@ contract GameV3 is IERC721Receiver, Context, RNG {
 
 
     //Quickplay Entry
-    function enterRaptorIntoQuickPlay(uint8 minterIndex, uint16 raptor)
+    function enterRaptorIntoQuickPlay(uint8 minterIndex, uint16 raptor,uint8 v, bytes32 r, bytes32 s)
         external
+        verifySignature(v,r,s)
         returns(bool)
     {
         //check that current race is enabled
@@ -315,8 +329,9 @@ contract GameV3 is IERC721Receiver, Context, RNG {
     }
 
     //Competitive Entry
-    function enterRaptorIntoComp(uint8 minterIndex, uint16 raptor)
+    function enterRaptorIntoComp(uint8 minterIndex, uint16 raptor,uint8 v, bytes32 r, bytes32 s)
         external
+        verifySignature(v,r,s)
         returns(bool)
     {
         //check that current race is enabled
@@ -337,8 +352,9 @@ contract GameV3 is IERC721Receiver, Context, RNG {
     }
 
     //DeathRace Entry
-    function enterRaptorIntoDR(uint256 minterIndex, uint16 raptor)
+    function enterRaptorIntoDR(uint256 minterIndex, uint16 raptor,uint8 v, bytes32 r, bytes32 s)
         external
+        verifySignature(v,r,s)
         returns(bool)
     {
 
