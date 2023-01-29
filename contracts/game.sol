@@ -38,6 +38,7 @@ contract GameV3 is IERC721Receiver, Context, RNG {
     error NoSpace();
     error NotYours();
     error NotReady();
+    error NotAuthorised();
     error WrongFunds();
 
     //does these need an explanation?
@@ -122,7 +123,7 @@ contract GameV3 is IERC721Receiver, Context, RNG {
         address _raptorCoin,
         address _communityWallet,
         address _vrfCoordinator,
-        address _sigVarifier,
+        address _sigVerifier,
         uint64 _subscriptionId,
         bytes32 _keyHash,
         uint32 _distance,
@@ -174,7 +175,7 @@ contract GameV3 is IERC721Receiver, Context, RNG {
 
         raptorCoin = _raptorCoin;
 
-        sigVerifier = _sigVarifier;
+        sigVerifier = _sigVerifier;
     }
 
     //This modifier checks that a caller is the admin of the contract
@@ -352,7 +353,7 @@ contract GameV3 is IERC721Receiver, Context, RNG {
     }
 
     //DeathRace Entry
-    function enterRaptorIntoDR(uint256 minterIndex, uint16 raptor,uint8 v, bytes32 r, bytes32 s)
+    function enterRaptorIntoDR(uint8 minterIndex, uint16 raptor,uint8 v, bytes32 r, bytes32 s)
         external
         verifySignature(v,r,s)
         returns(bool)

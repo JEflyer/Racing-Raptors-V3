@@ -241,19 +241,19 @@ library gameLib {
     //uses a element of randomness to add unpredictability to the race
     //calculates the fastest then ignores that index when calculating 2nd place
     //ignores the top 2 fastest indexes when calculating 3rd place
-    function getFastest(uint8[2] memory fighters, uint32[8] memory time)
+    function getFastest(uint8[2] memory fighters, uint64[8] memory time)
         internal
         pure
         returns (uint8[3] memory)
     {
         //Assign this value a high number
-        uint32 lowest = type(uint32).max;
+        uint64 lowest = type(uint64).max;
 
         //Make an array to store the placed raptors
         uint8[3] memory places;
 
         //Iterate through the current Raptors
-        for (uint256 i = 0; i < 8; ) {
+        for (uint8 i = 0; i < 8; ) {
             //If i does not equal the indexes of either fighter
             if (i != fighters[0] && i != fighters[1]) {
                 //Check if the time that it takes for raptor at position i to finish the race is the lowest
@@ -273,17 +273,17 @@ library gameLib {
         }
 
         //Reset the lowest time variable
-        lowest = type(uint32).max;
+        lowest = type(uint64).max;
 
 
         //Iterate through the current raptors
-        for (uint256 i = 0; i < 8; ) {
+        for (uint8 i = 0; i < 8; ) {
             //If I does not equal the indexes of either fighter OR the winner
             if (i != fighters[0] && i != fighters[1] && i != places[0]) {
                 //Check if the time that it takes for raptor at position i to finish the race is the lowest
                 if (time[i] < lowest) {
                     //Assign the lowest amount of time
-                    lowest = uint16(time[i]);
+                    lowest = time[i];
 
                     //Store the index of second place
                     places[1] = i;
@@ -297,11 +297,11 @@ library gameLib {
         }
 
         //Reset the lowest time variable
-        lowest = type(uint32).max;
+        lowest = type(uint64).max;
 
 
         //Iterate through the current raptors
-        for (uint256 i = 0; i < 8; ) {
+        for (uint8 i = 0; i < 8; ) {
             //If I does not equal the indexes of either fighter OR the winner OR the 2nd place raptor
             if (
                 i != fighters[0] &&

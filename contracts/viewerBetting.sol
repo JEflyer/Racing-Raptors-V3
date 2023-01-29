@@ -104,7 +104,7 @@ contract ViewerBetting is Context{
         uint8[] memory fastestSpeedIndexes; //speed from max to min
 
         //we want the array of indexes the highest speeds into a new array
-        for(uint256 i = 0;  i < _raptors.length;){
+        for(uint8 i = 0;  i < _raptors.length;){
 
             speed[i] = stats.getSpeed(_minterIndexes[i], _raptors[i]);
             fastestSpeedIndexes[i] = i;
@@ -113,7 +113,7 @@ contract ViewerBetting is Context{
             }
         }
 
-        for(uint256 i = 0; i<speed.length-1;){
+        for(uint8 i = 0; i<speed.length-1;){
             if(speed[i] < speed[i+1]){
                 uint64 temp = speed[i];
                 speed[i] = speed[i+1];
@@ -137,7 +137,7 @@ contract ViewerBetting is Context{
 
         BetDetails storage details = betDetails;
 
-        for(uint256 i = 0; i< speed.length;){
+        for(uint8 i = 0; i< speed.length;){
 
             details.sortedRaptors[i] = RaptorDetails({
                 speed: speed[fastestSpeedIndexes[i]],
@@ -226,13 +226,15 @@ contract ViewerBetting is Context{
     //winning top 3 for sixth fastest raptor -  
 
     function getPayouts(Results memory _results) private view returns(address[] memory addresses, uint256[] memory payouts){
-        BetDetails memory details = betDetails;
+        BetDetails storage details = betDetails;
+
+        address[] memory betters = details.betters;
 
         for(uint64 i = 0; i<details.betters.length; ){
 
-            uint256 payout = check(details.betterDetails[details.betters[i]], _results);
+            uint256 payout = check(details.betterDetails[betters[i]], _results);
             if(payout > 0){
-                addresses[addresses.length] = details.betters[i];
+                addresses[addresses.length] = betters[i];
                 payouts[payouts.length] = payout;
             }
             unchecked{
@@ -299,9 +301,10 @@ contract ViewerBetting is Context{
     }
 
     function getWinningMultiplier(uint16 tokenId, uint8 index) private view returns(uint256){
-        BetDetails memory details = betDetails;
+        BetDetails storage details = betDetails;
 
-        for(uint256 i = 0 ; i < 8;){
+
+        for(uint8 i = 0 ; i < 8;){
 
             if(
                 details.sortedRaptors[i].tokenId == tokenId 
@@ -337,7 +340,7 @@ contract ViewerBetting is Context{
     }
 
     function getTop3WinningModifier(uint16 tokenID, uint8 index) private view returns(uint256){
-        BetDetails memory details = betDetails;
+        BetDetails storage details = betDetails;
 
         for(uint8 i = 0 ; i < 8;){
 

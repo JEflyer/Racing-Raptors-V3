@@ -42,6 +42,7 @@ contract LpDepositor {
 
     modifier NotNullAddress(address addr){
         if(addr == address(0)) revert NullAddress();
+        _;
     }
 
     function setAdmin(address _new) external onlyAdmin NotNullAddress(_new) {

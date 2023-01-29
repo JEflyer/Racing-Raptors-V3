@@ -269,11 +269,11 @@ contract Stats is Context {
     }
 
     function TakeAHitOfTheBong(uint256 index, uint256 tokenID) external {
-        IBud bud = IBud(_budMinter);
+        IBud bud = IBud(budMinter);
 
         if(!bud.isApprovedForAll(msg.sender, address(this))) revert NotApprovedForAll();
 
-        RaptorStats storage stats = tokenStats[minterArray[index]][tokenId];
+        RaptorStats storage stats = tokenStats[minterArray[index]][tokenID];
 
         if(stats.cooldownTime < block.timestamp) revert NoCooldown();
 

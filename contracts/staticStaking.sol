@@ -31,6 +31,9 @@ contract StaticStaking is Context{
     error NothingStaked();
     error FailedUpdate();
     error NothingOwed();
+    error NotStaked();
+    error StakedThisStep();
+    error AmountApproved();
 
     //Stores an instance of an ERC20 interface
     address private token;
@@ -278,23 +281,23 @@ contract StaticStaking is Context{
         minter.transferFrom(address(this), caller, tokenId);
 
         //Remove the token from the user data  
-        UserData storage data = userData[caller];
+        UserData storage user_data = userData[caller];
 
-        if(data.tokenIDs.length == 1){
-            delete data.tokenIDs;
-            delete data.minterIndexes;
+        if(user_data.tokenIDs.length == 1){
+            delete user_data.tokenIDs;
+            delete user_data.minterIndexes;
         }else{
-            for(uint256 i = 0; i < data.tokenIDs.length;){
+            for(uint256 i = 0; i < user_data.tokenIDs.length;){
 
                 if(
-                    data.tokenIDs[i] == tokenId 
+                    user_data.tokenIDs[i] == tokenId 
                     &&
-                    data.minterIndexes[i] == minterIndex
+                    user_data.minterIndexes[i] == minterIndex
                 ){
-                    data.tokenIDs[i] = data.tokenIDs[data.tokenIDs.length-1];
-                    data.minterIndexes[i] = data.minterIndexes[data.minterIndexes.length-1];
-                    data.minterIndexes.pop();
-                    data.tokenIDs.pop();
+                    user_data.tokenIDs[i] = user_data.tokenIDs[user_data.tokenIDs.length-1];
+                    user_data.minterIndexes[i] = user_data.minterIndexes[user_data.minterIndexes.length-1];
+                    user_data.minterIndexes.pop();
+                    user_data.tokenIDs.pop();
                 }
 
                 unchecked {
@@ -312,7 +315,7 @@ contract StaticStaking is Context{
         uint256 total = 0;
 
         //Retrieve the stake data for the token
-        StakeData memory details = stakeData[minterIndex][tokenId];
+        StakeData memory details = stakeData[minterIndex][tokenID];
 
         uint256 step = details.stepLastClaimed == 0 ? details.stepStakedOn : details.stepLastClaimed;
 

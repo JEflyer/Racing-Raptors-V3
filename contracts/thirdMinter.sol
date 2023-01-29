@@ -84,7 +84,7 @@ contract ThirdMinter is ERC721AQueryable, Ownable {
 
         if(_payees.length != _shares.length || _payees.length == 0) revert WrongLength();
 
-        uint256 total = 0;
+        uint16 total = 0;
 
         for(uint256 i = 0; i < _payees.length;){
 
@@ -237,9 +237,9 @@ contract ThirdMinter is ERC721AQueryable, Ownable {
 
     function splitFunds(uint256 amount,IERC20 token) private {
         
-        uint256 _totalShares = totalShares;
+        uint16 _totalShares = totalShares;
 
-        uint256[] memory _shares = shares;
+        uint16[] memory _shares = shares;
 
         address[] memory _payees = payees;
 

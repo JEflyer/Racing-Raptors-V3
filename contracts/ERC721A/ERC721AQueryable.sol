@@ -140,7 +140,7 @@ abstract contract ERC721AQueryable is ERC721A, IERC721AQueryable {
      * multiple smaller scans if the collection is large enough to cause
      * an out-of-gas error (10K pfp collections should be fine).
      */
-    function tokensOfOwner(address owner) external view override returns (uint256[] memory) {
+    function tokensOfOwner(address owner) public view override returns (uint256[] memory) {
         unchecked {
             uint256 tokenIdsIdx;
             address currOwnershipAddr;

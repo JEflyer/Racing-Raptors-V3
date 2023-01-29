@@ -36,10 +36,10 @@ contract SignatureVerifier {
         permissionGiver = _new;
     }
 
-    function verfySignature(uint8 v, bytes32 r, bytes32 s, address query) external returns(bool){
+    function verifySignature(uint8 v, bytes32 r, bytes32 s, address query) external returns(bool){
         uint256 nonce = currentNonce[query]; 
         
-        bytes32 hashedMessage = keccak256(query,nonce);
+        bytes32 hashedMessage = keccak256(abi.encodePacked(query,nonce));
 
         address signer = ecrecover(hashedMessage,v,r,s);
 

@@ -31,7 +31,7 @@ contract BudMinter is ERC721AQueryable {
 
     mapping(uint8 => mapping(bytes32 => mapping(bytes32 => bool))) private usedSignatures;
 
-    constructor(){
+    constructor()ERC721A("Buds","Bd"){
         admin = msg.sender;
     }
 
@@ -75,7 +75,7 @@ contract BudMinter is ERC721AQueryable {
         
         if(usedSignatures[v][r][s]) revert SignatureAlreadyUsed();
 
-        if(ecrecover(abi.encodePacked(keccak256(msg.sender)), v, r, s) != permissionGiver) revert NotAuthorisedSigner();
+        if(ecrecover(keccak256(abi.encodePacked(msg.sender)), v, r, s) != permissionGiver) revert NotAuthorisedSigner();
 
         usedSignatures[v][r][s] = true;
 

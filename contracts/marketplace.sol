@@ -22,7 +22,20 @@ contract Marketplace is Context{
     error NullArray();
     error NullAddress();
     error NullNumber();
+    error NotSeller();
+    error NotApproved();
+    error NotWinner();
+    error NotActive();
+    error NotOver();
+    error NotLongEnough();
+    error NotOwner();
+    error NotAdmin();
+    error LowBalling();
     error WrongSaleType();
+    error WrongSale();
+    error WrongValue();
+    error IncorrectMinter();
+    error ApprovedAmount();
 
     //Fixed Sale - Lister set a buy now price
     //Auction - Lister set a minimum auction price
@@ -92,7 +105,7 @@ contract Marketplace is Context{
     //_feePercent => This is the percentage of each sale that will be burned
     //_token => This is the address of raptor coin
     constructor(
-        address[] _minters,
+        address[] memory _minters,
         uint256 _feePercent,
         address _token,
         address _rate,
@@ -105,9 +118,9 @@ contract Marketplace is Context{
 
         for(uint256 i = 0; i < _minters.length;){
 
-            if(_minters[i]) revert NullAddress();
+            if(_minters[i] == address(0)) revert NullAddress();
 
-            interfaces.push(IERC721A(_minters[i]));
+            interfaces[i]  = IERC721A(_minters[i]);
 
             unchecked{
                 i++;
@@ -316,7 +329,7 @@ contract Marketplace is Context{
         token.BurnFrom(caller,burnAmount);
 
         //Transfer NFT from this contract to the purchaser 
-        minter.transferFrom(address(this),caller,details.tokenId);
+        minters[details.minterIndex].transferFrom(address(this),caller,details.tokenId);
         
         //Delete the bool keeping track of if the sale is active or not. This by defaults sets the variable back to false & refunds gas to the caller
         delete details.active;

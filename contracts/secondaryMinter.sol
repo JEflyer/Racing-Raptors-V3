@@ -24,7 +24,7 @@ contract SecondaryMinter is ERC721AQueryable, Ownable {
     //TokenId => tokenURI
     mapping(uint256 => string) private tokenURIs;
 
-    constructor(address _stats) Ownable ERC721A("Collab Raptors", "CR") {
+    constructor(address _stats) ERC721A("Collab Raptors", "CR") {
 
         if(_stats == address(0)) revert NullAddress();
  
@@ -49,7 +49,7 @@ contract SecondaryMinter is ERC721AQueryable, Ownable {
         //Mint a NFT for the "to" address with the tokenId
         _mint(to, 1);
 
-        stats.instantiateStats(address(this),tokenId);
+        stats.instantiateStats(tokenId);
 
         //Setting the tokenURI for tokenId
         tokenURIs[tokenId] = URI;
