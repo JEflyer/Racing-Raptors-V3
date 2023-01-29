@@ -27,6 +27,7 @@ contract Stats is Context {
     error AlreadyAuthorised();
     error NotApprovedForAll();
     error NoCooldown();
+    error NotSet();
 
     //minter address => whether or not it has been added to this contract
     mapping(address => bool) private minters;
@@ -52,14 +53,14 @@ contract Stats is Context {
 
     address private budMinter;
 
-    constructor(address _game, address _budMinter) {
+    constructor(address _budMinter) {
 
-        if(_game == address(0)) revert NullAddress();
+        // if(_game == address(0)) revert NullAddress();
         if(_budMinter == address(0)) revert NullAddress();
 
         budMinter = _budMinter;
         //Build the game interface
-        game = _game;
+        // game = _game;
     }
 
     //This modifier checks that the caller is the admin of this contract
@@ -71,6 +72,11 @@ contract Stats is Context {
     //This modifier checks that the caller is the set game contract
     modifier onlyGame {
         if(_msgSender() != game) revert NotGame();//NG => Not Game
+        _;
+    }
+
+    modifier gameIsSet{
+        if(game == address(0)) revert NotSet();
         _;
     }
 
@@ -163,61 +169,61 @@ contract Stats is Context {
     //Increase races participated in
 
     //For a minterIndex & tokenId increase the raptors speed by increaseAmount
-    function increaseSpeed(uint256 index, uint256 tokenId, uint64 increaseAmount) external onlyGame returns(bool){
+    function increaseSpeed(uint256 index, uint256 tokenId, uint64 increaseAmount) external onlyGame gameIsSet returns(bool){
         tokenStats[minterArray[index]][tokenId].speed += increaseAmount;
         return true;
     }
 
     //For a minterIndex & tokenId increase the raptors strength by increaseAmount
-    function increaseStrength(uint256 index, uint256 tokenId, uint64 increaseAmount) external onlyGame returns(bool){
+    function increaseStrength(uint256 index, uint256 tokenId, uint64 increaseAmount) external onlyGame gameIsSet returns(bool){
         tokenStats[minterArray[index]][tokenId].strength += increaseAmount;
         return true;
     }
 
     //For a minterIndex & tokenId increase the raptors fightsWon stat by 1
-    function increaseFightsWon(uint256 index, uint256 tokenId) external onlyGame returns(bool){
+    function increaseFightsWon(uint256 index, uint256 tokenId) external onlyGame gameIsSet returns(bool){
         tokenStats[minterArray[index]][tokenId].fightsWon++;
         return true;
     }
 
     //For a minterIndex & tokenId increase the raptors fightsLost stat by 1
-    function increaseFightsLost(uint256 index, uint256 tokenId) external onlyGame returns(bool){
+    function increaseFightsLost(uint256 index, uint256 tokenId) external onlyGame gameIsSet returns(bool){
         tokenStats[minterArray[index]][tokenId].fightsLost++;
         return true;
     }
 
     //For a minterIndex & tokenId increase the raptors QPRacesWon stat by 1
-    function increaseQPRacesWon(uint256 index, uint256 tokenId) external onlyGame returns(bool){
+    function increaseQPRacesWon(uint256 index, uint256 tokenId) external onlyGame gameIsSet returns(bool){
         tokenStats[minterArray[index]][tokenId].quickPlayRacesWon++;
         return true;
     }
 
     //For a minterIndex & tokenId increase the raptors CompRacesWon stat by 1
-    function increaseCompRacesWon(uint256 index, uint256 tokenId) external onlyGame returns(bool){
+    function increaseCompRacesWon(uint256 index, uint256 tokenId) external onlyGame gameIsSet returns(bool){
         tokenStats[minterArray[index]][tokenId].compRacesWon++;
         return true;
     } 
 
     //For a minterIndex & tokenId increase the raptors DeathRacesWon stat by 1
-    function increaseDRWon(uint256 index, uint256 tokenId) external onlyGame returns(bool){
+    function increaseDRWon(uint256 index, uint256 tokenId) external onlyGame gameIsSet returns(bool){
         tokenStats[minterArray[index]][tokenId].deathRacesWon++;
         return true;
     }
 
     //For a minterIndex & tokenId increase the raptors DeathRacesSurvived stat by 1
-    function increaseDRSurvived(uint256 index, uint256 tokenId) external onlyGame returns(bool){
+    function increaseDRSurvived(uint256 index, uint256 tokenId) external onlyGame gameIsSet returns(bool){
         tokenStats[minterArray[index]][tokenId].deathRacesSurvived++;
         return true;
     }
 
 
-    function increaseTop3Finishes(uint256 index, uint256 tokenId) external onlyGame returns(bool){
+    function increaseTop3Finishes(uint256 index, uint256 tokenId) external onlyGame gameIsSet returns(bool){
         tokenStats[minterArray[index]][tokenId].totalRacesTop3Finish++;
         return true;
     }
 
     //For a minterIndex & tokenId increase the raptors cooldownTime to a period of time from now
-    function increaseCooldownTime(uint256 index, uint256 tokenId) external onlyGame returns(bool){
+    function increaseCooldownTime(uint256 index, uint256 tokenId) external onlyGame gameIsSet returns(bool){
 
         //minterArray[0] is the mainMinter
         if(index == 0){
@@ -238,7 +244,7 @@ contract Stats is Context {
     }
 
     //Calls the minter contract to burn a given token Id
-    function burn(uint8 minterIndex, uint256 tokenId) external onlyGame returns(bool){
+    function burn(uint8 minterIndex, uint256 tokenId) external onlyGame gameIsSet returns(bool){
         IBurn(minterArray[minterIndex]).burnByStats(tokenId);//OB => On Burn
 
         return true;

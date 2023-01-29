@@ -1,0 +1,30 @@
+{
+    "goerli": {
+        "provider_url": "",
+        "private": "",
+        "vrf_coordinator": "0x2ca8e0c643bde4c2e08ab1fa0da3401adad7734d",
+        "subscription_id": 6157,
+        "key_hash": "0x79d3d8832d904592c0bf9818b621522c988bb8b0c05cdc3b15aea1b6e8db0c15",
+        "weth": "0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6",
+        "usd_tokens": [
+            "0x07865c6E87B9F70255377e024ace6630C1Eaa37F",
+            "0x07865c6E87B9F70255377e024ace6630C1Eaa37F",
+            "0x07865c6E87B9F70255377e024ace6630C1Eaa37F"
+        ],
+        "signers": [
+            "0x42b3650129825E80F3a02e3A53023aaa91F873b4",
+            "0x122A537e57D1E362B1053221d9694a68602A7093",
+            "0x73451839DBDD92c2fbB202E98694380c1352f2BF"
+        ],
+        "payees": [
+            "0x42b3650129825E80F3a02e3A53023aaa91F873b4",
+            "0x122A537e57D1E362B1053221d9694a68602A7093",
+            "0x73451839DBDD92c2fbB202E98694380c1352f2BF"
+        ],
+        "shares": [
+            1,
+            1,
+            1
+        ]
+    }
+}

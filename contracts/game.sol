@@ -117,7 +117,6 @@ contract GameV3 is IERC721Receiver, Context, RNG {
     //_keyHash => This is something
     //_distance => This is the distance that raptors will race through
     //_fee => This is the entrance fee that users will have to pay
-    //Thoughts, why don't we take the fee in raptor coin
     constructor(
         address _stats,
         address _raptorCoin,

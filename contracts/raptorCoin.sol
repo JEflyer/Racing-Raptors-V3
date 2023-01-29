@@ -27,23 +27,19 @@ contract RaptorCoin is ERC20, ERC20Burnable {
 
     constructor(
         address _WMatic,
-        address _uniswapV2RouterAddr,
-        address _liquidityLockedAddress
+        address _uniswapV2RouterAddr
     ) ERC20("RaptorCoin", "RC") {
 
         if(
             _WMatic == address(0)
             ||
-            _uniswapV2RouterAddr == address(0)
-            ||
-            _liquidityLockedAddress == address(0)    
+            _uniswapV2RouterAddr == address(0)   
         ) revert NullAddress();
 
         admin = msg.sender;
         liquidityPercent = 15;
         WMatic = _WMatic;
         uniswapV2RouterAddr = _uniswapV2RouterAddr;
-        liquidityLockedAddress = _liquidityLockedAddress;
     }
 
     modifier onlyAdmin() {
